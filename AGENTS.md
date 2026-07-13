@@ -102,3 +102,14 @@ Node.js 服务不得使用 `child_process`、`worker_threads` 或其他方式直
 * **GitHub Actions**：执行安装、类型检查、测试、构建和镜像发布。
 
 开发环境可以从 `services/go-judge` 直接构建沙箱镜像；生产环境必须使用由特定 commit 构建的固定版本镜像，不使用无法追溯的 `latest` 标签。生产环境只允许 Web 和 API 对公网开放，PostgreSQL、Redis、MinIO、Worker 和 go-judge 必须位于私有网络中。
+
+## 文档
+
+在开发过程中，我们需要时刻维护一个文档列表，保存在 `docs/` 目录下。这个目录下有多个子目录，例如：
+
+* `docs/api/` 下保存 API 文档。
+* `docs/tech/` 下保存技术细节文档。
+
+每个子目录分为多个小类，如 `docs/tech/web/` 保存前端的技术细节实现文档等。
+
+当你在创建新 API、新页面或更改实现时，请同步更新文档。

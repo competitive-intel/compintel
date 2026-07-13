@@ -1,0 +1,159 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../generated/client"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum PlayerKind {
+  USER
+  PLATFORM
+}
+
+enum PlayerLanguage {
+  CPP
+  BUILTIN
+}
+
+enum EvaluationStatus {
+  QUEUED
+  COMPILING
+  RUNNING
+  FINISHED
+}
+
+enum EvaluationVerdict {
+  ACCEPTED
+  COMPILE_ERROR
+  RUNTIME_ERROR
+  TIME_LIMIT_EXCEEDED
+  MEMORY_LIMIT_EXCEEDED
+  OUTPUT_LIMIT_EXCEEDED
+  DANGEROUS_SYSCALL
+  INVALID_MOVE
+  INTERNAL_ERROR
+}
+
+enum MatchStatus {
+  QUEUED
+  RUNNING
+  FINISHED
+}
+
+enum MatchOutcome {
+  WIN
+  LOSS
+  DRAW
+  ERROR
+}
+
+model User {
+  id          String   @id @default(cuid())
+  externalId  String   @unique
+  displayName String?
+  players     Player[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Game {
+  id           String   @id @default(cuid())
+  slug         String   @unique
+  name         String
+  rulesVersion String
+  players      Player[]
+  matches      Match[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Player {
+  id        String          @id @default(cuid())
+  gameId    String
+  game      Game            @relation(fields: [gameId], references: [id], onDelete: Restrict)
+  ownerId   String?
+  owner     User?           @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  kind      PlayerKind
+  name      String
+  versions  PlayerVersion[]
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  @@unique([gameId, ownerId, name])
+  @@index([gameId, kind])
+}
+
+model PlayerVersion {
+  id                  String             @id @default(cuid())
+  playerId            String
+  player              Player             @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  version             Int
+  language            PlayerLanguage
+  sourceCode          String?
+  sourceSha256        String?
+  implementationKey   String?            @unique
+  evaluations         Evaluation[]       @relation("EvaluationSubject")
+  opponentEvaluations Evaluation[]       @relation("EvaluationOpponent")
+  matchParticipants   MatchParticipant[]
+  createdAt           DateTime           @default(now())
+
+  @@unique([playerId, version])
+}
+
+model Evaluation {
+  id                String             @id @default(cuid())
+  playerVersionId   String
+  playerVersion     PlayerVersion      @relation("EvaluationSubject", fields: [playerVersionId], references: [id], onDelete: Cascade)
+  opponentVersionId String?
+  opponentVersion   PlayerVersion?     @relation("EvaluationOpponent", fields: [opponentVersionId], references: [id], onDelete: Restrict)
+  status            EvaluationStatus   @default(QUEUED)
+  verdict           EvaluationVerdict?
+  attempts          Int                @default(0)
+  compileStatus     String?
+  compileLog        String?
+  runStatus         String?
+  stdout            String?
+  stderr            String?
+  cpuTimeNs         BigInt?
+  wallTimeNs        BigInt?
+  memoryBytes       BigInt?
+  errorMessage      String?
+  createdAt         DateTime           @default(now())
+  startedAt         DateTime?
+  finishedAt        DateTime?
+
+  @@index([playerVersionId, createdAt])
+  @@index([opponentVersionId])
+  @@index([status, createdAt])
+}
+
+model Match {
+  id           String             @id @default(cuid())
+  gameId       String
+  game         Game               @relation(fields: [gameId], references: [id], onDelete: Restrict)
+  status       MatchStatus        @default(QUEUED)
+  participants MatchParticipant[]
+  replayKey    String?
+  createdAt    DateTime           @default(now())
+  startedAt    DateTime?
+  finishedAt   DateTime?
+
+  @@index([gameId, createdAt])
+}
+
+model MatchParticipant {
+  id              String        @id @default(cuid())
+  matchId         String
+  match           Match         @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  playerVersionId String
+  playerVersion   PlayerVersion @relation(fields: [playerVersionId], references: [id], onDelete: Restrict)
+  seat            Int
+  outcome         MatchOutcome?
+  detail          Json?
+
+  @@unique([matchId, seat])
+  @@unique([matchId, playerVersionId])
+}

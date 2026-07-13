@@ -3,7 +3,17 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import tsx --test test/*.test.ts"
+  },
   "dependencies": {
+    "ws": "^8.21.0",
     "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1"
   }
 }

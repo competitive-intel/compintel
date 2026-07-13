@@ -22,6 +22,7 @@ CompIntel 是一个面向算法竞赛选手的通用 AI 对战平台。参赛者
 - `packages/contracts`：共享的 Zod Schema 与接口类型
 - `packages/db`：Prisma Schema、迁移与数据库客户端
 - `packages/game-core`：游戏状态、规则、操作校验与胜负判断
+- `packages/builtin-players`：以不可变 implementation key 注册的平台 Player 实现
 - `packages/judge-client`：go-judge 接口封装
 - `packages/config`：服务端环境变量读取与校验
 - `services/go-judge`：以 Git Submodule 引入的沙箱服务 fork
@@ -58,7 +59,24 @@ corepack enable
 pnpm install
 ```
 
-根目录脚本、本地基础设施和各应用入口仍在建设中；可用命令请以根目录 `package.json` 为准。
+启动本地依赖并初始化数据库：
+
+```bash
+docker compose -f infra/compose.yaml up -d postgres redis go-judge
+cp .env.example .env
+set -a && source .env && set +a
+pnpm db:migrate
+pnpm db:seed
+```
+
+分别启动 API 与 Worker：
+
+```bash
+pnpm --filter @compintel/api dev
+pnpm --filter @compintel/worker dev
+```
+
+Player 提交格式、评测查询和五子棋协议见 `docs/api/player-evaluations.md`。运行 `pnpm typecheck` 和 `pnpm test` 可执行仓库的静态检查与测试。
 
 ## 开发约定
 

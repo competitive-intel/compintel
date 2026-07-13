@@ -1,5 +1,5 @@
 {
-  "name": "@compintel/contracts",
+  "name": "@compintel/builtin-players",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -10,6 +10,6 @@
     "test": "node --import tsx --test test/*.test.ts"
   },
   "dependencies": {
-    "zod": "^4.4.3"
+    "@compintel/game-core": "workspace:*"
   }
 }
