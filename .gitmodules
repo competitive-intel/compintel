@@ -1,0 +1,4 @@
+[submodule "services/go-judge"]
+	path = services/go-judge
+	url = https://github.com/competitive-intel/go-judge-mt.git
+	branch = master

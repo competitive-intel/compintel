@@ -1,0 +1,20 @@
+{
+  "name": "@compintel/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1085.0",
+    "@aws-sdk/s3-request-presigner": "^3.1085.0",
+    "@compintel/config": "workspace:*",
+    "@compintel/contracts": "workspace:*",
+    "@compintel/db": "workspace:*",
+    "bullmq": "^5.80.2",
+    "fastify": "^5.10.0",
+    "fastify-plugin": "^6.0.0",
+    "fastify-type-provider-zod": "^7.0.0",
+    "ioredis": "^5.11.1",
+    "pino": "^10.3.1",
+    "zod": "^4.4.3"
+  }
+}
