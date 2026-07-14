@@ -84,7 +84,7 @@ export function GameDetailPage() {
         </div>
       </header>
 
-      <section aria-label="游戏说明" className="max-w-4xl">
+      <section aria-label="游戏说明">
         <MarkdownContent>{game.data.rulesMarkdown}</MarkdownContent>
       </section>
 

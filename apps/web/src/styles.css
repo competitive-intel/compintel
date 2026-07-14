@@ -171,6 +171,12 @@
     @apply text-primary underline underline-offset-4;
   }
 
+  .markdown-content img {
+    display: block;
+    margin-inline: auto;
+    max-width: 100%;
+  }
+
   .markdown-content blockquote {
     @apply text-muted-foreground;
     padding-left: 1rem;
