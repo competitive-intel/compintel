@@ -25,6 +25,7 @@ apps/web/
 ├── src/
 │   ├── components/     # 跨页面 UI 组件和全局布局
 │   │   └── ui/          # 仓库内维护的 shadcn/ui 基础组件
+│   ├── games/          # 按游戏拆分的回放 UI、测试与 fixture
 │   ├── lib/            # API 客户端、认证与主题状态
 │   ├── pages/          # 按功能域组织的路由页面
 │   │   ├── admin/      # 游戏管理与用户审核
@@ -60,6 +61,8 @@ apps/web/
 登录后的业务页面统一使用 `PageTitle` 渲染一级标题，字号为移动端 `text-2xl`、`sm` 及以上 `text-3xl`。页面不得自行覆盖一级标题字号；认证页面使用 Card 标题，不混入业务页的 `h1` 层级。
 
 TanStack Query 在 `main.tsx` 中统一配置。`src/lib/api.ts` 封装 Axios 请求和统一错误转换，并使用 `packages/contracts` 导出的 Zod Schema 校验身份、游戏目录、内置程序管理、提交、评测记录和详情响应，避免未经验证的数据进入组件。
+
+游戏专属前端实现统一放在 `src/games/`，每个游戏使用独立文件维护回放 UI，并由 `src/games/index.tsx` 集中分派。通用页面和 `components/` 不直接判断具体游戏；新增游戏时同步增加对应实现、测试 fixture 和 registry 项。
 
 游戏详情的 `rulesMarkdown` 由 `MarkdownContent` 使用 `markdown-it` 渲染。解析器关闭原始 HTML，启用链接识别，并通过 `@mdit/plugin-katex` 支持 `$...$`、`$$...$$`、`\\(...\\)` 和 `\\[...\\]` 公式；fenced C++ 代码块由 Shiki 静态高亮。KaTeX 样式、字体和代码主题由前端构建产物一并提供。
 

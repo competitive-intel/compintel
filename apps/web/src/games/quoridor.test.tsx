@@ -1,9 +1,9 @@
 import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { quoridorReplayFixture } from "../test/fixtures";
 import { renderWithProviders } from "../test/render";
-import { QuoridorReplayBoard } from "./QuoridorReplayBoard";
+import { QuoridorReplayBoard } from "./quoridor";
+import { quoridorReplayFixture } from "./quoridor.test-fixtures";
 
 describe("QuoridorReplayBoard", () => {
   it("renders pawns, horizontal and vertical walls", () => {

@@ -10,11 +10,13 @@ import type {
 
 import {
   EvaluationProcessor,
-  runGomokuEvaluation,
-  runQuoridorEvaluation,
   type EvaluationRepository,
   type FinishEvaluationInput,
 } from "../src/evaluation-processor.js";
+import {
+  runGomokuEvaluation,
+  runQuoridorEvaluation,
+} from "../src/games/index.js";
 
 class MemoryRepository implements EvaluationRepository {
   finished: FinishEvaluationInput | undefined;

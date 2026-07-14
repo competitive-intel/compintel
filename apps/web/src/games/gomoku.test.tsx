@@ -2,14 +2,14 @@ import { fireEvent, screen } from "@testing-library/react";
 import { act } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import { replayFixture } from "../test/fixtures";
 import { renderWithProviders } from "../test/render";
-import { GomokuReplayBoard } from "./GomokuReplayBoard";
+import { gomokuReplayFixture } from "./gomoku.test-fixtures";
+import { GomokuReplayBoard } from "./gomoku";
 
 describe("GomokuReplayBoard", () => {
   it("renders board dimensions, seats, moves, and the final move", () => {
     const { container } = renderWithProviders(
-      <GomokuReplayBoard replay={replayFixture()} />,
+      <GomokuReplayBoard replay={gomokuReplayFixture()} />,
     );
 
     expect(screen.getByText("白方（先手）")).toBeInTheDocument();
@@ -32,7 +32,7 @@ describe("GomokuReplayBoard", () => {
   it("steps through the replay and automatically plays from the beginning", () => {
     vi.useFakeTimers();
     const { container } = renderWithProviders(
-      <GomokuReplayBoard replay={replayFixture()} />,
+      <GomokuReplayBoard replay={gomokuReplayFixture()} />,
     );
 
     fireEvent.click(screen.getByRole("button", { name: "上一步" }));
@@ -62,7 +62,7 @@ describe("GomokuReplayBoard", () => {
     [{ type: "playing" } as const, 0 as const, "异常中止"],
   ])("renders result %#", (result, userSeat, label) => {
     renderWithProviders(
-      <GomokuReplayBoard replay={replayFixture({ result, userSeat })} />,
+      <GomokuReplayBoard replay={gomokuReplayFixture({ result, userSeat })} />,
     );
     expect(screen.getByText(label)).toBeInTheDocument();
   });
@@ -70,7 +70,10 @@ describe("GomokuReplayBoard", () => {
   it("renders an empty board without a final-move marker", () => {
     const { container } = renderWithProviders(
       <GomokuReplayBoard
-        replay={replayFixture({ moves: [], result: { type: "playing" } })}
+        replay={gomokuReplayFixture({
+          moves: [],
+          result: { type: "playing" },
+        })}
       />,
     );
     expect(screen.getByText("0")).toBeInTheDocument();

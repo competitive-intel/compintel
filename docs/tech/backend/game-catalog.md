@@ -4,7 +4,7 @@
 
 ## 发布边界
 
-游戏目录由 seed 等源代码安装，管理 API 不提供创建操作。用户目录、详情查询及 Player 提交都要求 `isPublished=true`，因此管理员可以编辑已安装游戏的展示内容并控制发布。下架使用同一字段，不物理删除记录，避免破坏 Player、评测和对局外键。
+游戏目录由 seed 等源代码安装，管理 API 不提供创建操作。每个游戏的 seed 元数据分别位于 `packages/db/prisma/games/`，由同目录 registry 统一提供给 `seed.ts`。用户目录、详情查询及 Player 提交都要求 `isPublished=true`，因此管理员可以编辑已安装游戏的展示内容并控制发布。下架使用同一字段，不物理删除记录，避免破坏 Player、评测和对局外键。
 
 `GameService` 集中处理目录查询、序列化与更新：
 
@@ -14,7 +14,7 @@
 
 所有输入和响应都使用 `packages/contracts/src/game.ts` 的 Zod Schema 校验。Worker 从 Evaluation 所属游戏读取资源限制，并在启动用户与平台双方长驻沙箱时换算为 go-judge 使用的纳秒和字节。目录字段的数据库变更位于 `20260713030000_game_catalog` 和 `20260714000000_game_resource_limits` 迁移。
 
-`rulesMarkdown` 最大 60,000 字符。服务端只保存和返回原文，不在 API 内渲染；前端使用关闭原始 HTML 的 `markdown-it` 解析，并通过 KaTeX 插件渲染行内和块级公式。
+`rulesMarkdown` 最大 60,000 字符。服务端只保存和返回原文，不在 API 内渲染；前端使用关闭原始 HTML 的 `markdown-it` 解析，并通过 KaTeX 插件渲染行内和块级公式。游戏 replay 的 Zod Schema 分别位于 `packages/contracts/src/games/`，再由目录入口组成判别联合，避免通用评测契约随游戏数量持续堆叠。
 
 ## 当前边界
 

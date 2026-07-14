@@ -10,7 +10,7 @@ import {
 import { useEffect, useState } from "react";
 
 import { cn } from "../lib/utils";
-import { Button } from "./ui/button";
+import { Button } from "../components/ui/button";
 
 export function GomokuReplayBoard({ replay }: { replay: GomokuReplay }) {
   const totalMoves = replay.moves.length;

@@ -6,7 +6,7 @@ import { GoJudgeClient } from "@compintel/judge-client";
 import {
   runGomokuEvaluation,
   runQuoridorEvaluation,
-} from "../src/evaluation-processor.js";
+} from "../src/games/index.js";
 
 const judgeUrl = process.env.JUDGE_E2E_URL;
 

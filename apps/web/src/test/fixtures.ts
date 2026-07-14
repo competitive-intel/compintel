@@ -6,8 +6,6 @@ import type {
   Evaluation,
   GameDetail,
   GameSummary,
-  GomokuReplay,
-  QuoridorReplay,
   SubmissionDetail,
   SubmissionRecord,
 } from "@compintel/contracts";
@@ -169,40 +167,6 @@ export function submissionDetailFixture(
     sourceSha256:
       "00096d96da5299e65479678a8e79b07ab36e6185120e892a1360e1be25e84fbb",
     evaluations: [evaluationFixture()],
-    ...overrides,
-  };
-}
-
-export function replayFixture(
-  overrides: Partial<GomokuReplay> = {},
-): GomokuReplay {
-  return {
-    gameSlug: "gomoku",
-    width: 3,
-    height: 3,
-    userSeat: 0,
-    moves: [
-      { x: 0, y: 0, seat: 0 },
-      { x: 1, y: 1, seat: 1 },
-      { x: 2, y: 0, seat: 0 },
-    ],
-    result: { type: "win", winner: 0 },
-    ...overrides,
-  };
-}
-
-export function quoridorReplayFixture(
-  overrides: Partial<QuoridorReplay> = {},
-): QuoridorReplay {
-  return {
-    gameSlug: "quoridor",
-    userSeat: 0,
-    moves: [
-      { type: 0, x: 4, y: 1, seat: 0 },
-      { type: 1, x: 3, y: 7, orientation: 1, seat: 1 },
-      { type: 1, x: 5, y: 2, orientation: 0, seat: 0 },
-    ],
-    result: { type: "win", winner: 0 },
     ...overrides,
   };
 }

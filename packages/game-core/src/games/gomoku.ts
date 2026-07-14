@@ -1,3 +1,4 @@
+/** Gomoku rules and protocol implementation. */
 export const GOMOKU_PROTOCOL_VERSION = 1;
 export const GOMOKU_BOARD_HEIGHT = 15;
 export const GOMOKU_BOARD_WIDTH = 15;

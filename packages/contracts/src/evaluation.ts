@@ -1,6 +1,9 @@
 import { z } from "zod";
 
+import { gameReplaySchema } from "./games/index.js";
 import { cppSourceSchema } from "./player.js";
+
+export * from "./games/index.js";
 
 export const PLAYER_EVALUATION_QUEUE = "player-evaluations";
 export const PLAYER_EVALUATION_JOB = "evaluate-player-version";
@@ -34,67 +37,6 @@ export const submissionEvaluationStatusSchema = z.enum([
   "QUEUED",
   "RUNNING",
   "FINISHED",
-]);
-
-export const gomokuReplayMoveSchema = z.object({
-  x: z.number().int().min(0),
-  y: z.number().int().min(0),
-  seat: z.union([z.literal(0), z.literal(1)]),
-});
-
-export const gomokuReplayResultSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("playing") }),
-  z.object({
-    type: z.literal("win"),
-    winner: z.union([z.literal(0), z.literal(1)]),
-  }),
-  z.object({ type: z.literal("draw") }),
-]);
-
-export const gomokuReplaySchema = z.object({
-  gameSlug: z.literal("gomoku"),
-  height: z.number().int().positive(),
-  width: z.number().int().positive(),
-  userSeat: z.union([z.literal(0), z.literal(1)]),
-  moves: z.array(gomokuReplayMoveSchema),
-  result: gomokuReplayResultSchema,
-});
-
-export const quoridorReplayMoveSchema = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal(0),
-    x: z.number().int().min(0).max(8),
-    y: z.number().int().min(0).max(8),
-    seat: z.union([z.literal(0), z.literal(1)]),
-  }),
-  z.object({
-    type: z.literal(1),
-    x: z.number().int().min(1).max(8),
-    y: z.number().int().min(1).max(8),
-    orientation: z.union([z.literal(0), z.literal(1)]),
-    seat: z.union([z.literal(0), z.literal(1)]),
-  }),
-]);
-
-export const quoridorReplayResultSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("playing") }),
-  z.object({
-    type: z.literal("win"),
-    winner: z.union([z.literal(0), z.literal(1)]),
-  }),
-  z.object({ type: z.literal("move_limit") }),
-]);
-
-export const quoridorReplaySchema = z.object({
-  gameSlug: z.literal("quoridor"),
-  userSeat: z.union([z.literal(0), z.literal(1)]),
-  moves: z.array(quoridorReplayMoveSchema),
-  result: quoridorReplayResultSchema,
-});
-
-export const gameReplaySchema = z.discriminatedUnion("gameSlug", [
-  gomokuReplaySchema,
-  quoridorReplaySchema,
 ]);
 
 export const evaluationSchema = z.object({
@@ -168,6 +110,3 @@ export type Evaluation = z.infer<typeof evaluationSchema>;
 export type SubmissionRecord = z.infer<typeof submissionRecordSchema>;
 export type SubmissionRecordList = z.infer<typeof submissionRecordListSchema>;
 export type SubmissionDetail = z.infer<typeof submissionDetailSchema>;
-export type GomokuReplay = z.infer<typeof gomokuReplaySchema>;
-export type QuoridorReplay = z.infer<typeof quoridorReplaySchema>;
-export type GameReplay = z.infer<typeof gameReplaySchema>;

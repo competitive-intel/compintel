@@ -1,2 +1,2 @@
-export * from "./gomoku.js";
-export * from "./quoridor.js";
+export * from "./games/gomoku.js";
+export * from "./games/quoridor.js";

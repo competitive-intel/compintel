@@ -1,3 +1,4 @@
+/** Quoridor rules and protocol implementation. */
 export const QUORIDOR_PROTOCOL_VERSION = 1;
 export const QUORIDOR_BOARD_SIZE = 9;
 export const QUORIDOR_WALLS_PER_PLAYER = 10;
