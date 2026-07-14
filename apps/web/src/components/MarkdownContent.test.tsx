@@ -37,4 +37,18 @@ describe("MarkdownContent", () => {
     );
     expect(container).toHaveTextContent("int main() { return 0; }");
   });
+
+  it("renders markdown images inside markdown-content", () => {
+    const { container } = renderWithProviders(
+      <MarkdownContent>
+        {"![棋盘示意](https://example.com/board.png)"}
+      </MarkdownContent>,
+    );
+
+    const root = container.querySelector(".markdown-content");
+    const image = screen.getByRole("img", { name: "棋盘示意" });
+    expect(root).not.toBeNull();
+    expect(root).toContainElement(image);
+    expect(image).toHaveAttribute("src", "https://example.com/board.png");
+  });
 });

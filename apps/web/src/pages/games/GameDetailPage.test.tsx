@@ -62,6 +62,7 @@ describe("GameDetailPage", () => {
     expect(screen.getByText("开放提交").parentElement).toContainElement(
       resourceLimits,
     );
+    expect(screen.getByLabelText("游戏说明")).not.toHaveClass("max-w-4xl");
   });
 
   it("scrolls the submission panel into view", async () => {
