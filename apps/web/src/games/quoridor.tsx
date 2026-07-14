@@ -27,6 +27,11 @@ export function QuoridorReplayBoard({ replay }: { replay: QuoridorReplay }) {
   }
 
   useEffect(() => {
+    setVisibleMoveCount(replay.moves.length);
+    setIsPlaying(false);
+  }, [replay]);
+
+  useEffect(() => {
     if (!isPlaying) return;
     const timer = window.setInterval(() => {
       setVisibleMoveCount((current) => {
