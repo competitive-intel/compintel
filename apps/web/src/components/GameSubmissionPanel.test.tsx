@@ -6,10 +6,16 @@ import { ApiError, getPlayerNames, submitPlayer } from "../lib/api";
 import { renderWithProviders } from "../test/render";
 import { GameSubmissionPanel } from "./GameSubmissionPanel";
 
+const navigate = vi.fn();
+
 vi.mock("../lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../lib/api")>()),
   submitPlayer: vi.fn(),
   getPlayerNames: vi.fn(),
+}));
+vi.mock("react-router-dom", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("react-router-dom")>()),
+  useNavigate: () => navigate,
 }));
 
 afterEach(() => {
@@ -44,7 +50,7 @@ describe("GameSubmissionPanel", () => {
     expect(combobox).toHaveTextContent("alpha");
   });
 
-  it("submits source and renders the accepted summary", async () => {
+  it("navigates to the submission detail after submitting source", async () => {
     vi.mocked(submitPlayer).mockResolvedValue({
       playerId: "player-1",
       playerVersionId: "version-2",
@@ -60,9 +66,8 @@ describe("GameSubmissionPanel", () => {
       name: "edge-player",
       sourceCode: "int main() {}",
     });
-    expect(await screen.findByRole("status")).toHaveTextContent(
-      "提交已受理，可查看评测详情。",
-    );
+    expect(navigate).toHaveBeenCalledWith("/submissions/version-2");
+    expect(screen.queryByText("提交成功")).not.toBeInTheDocument();
   });
 
   it("disables submission while pending", async () => {
