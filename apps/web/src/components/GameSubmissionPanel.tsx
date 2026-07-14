@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { CircleAlert, CircleCheck, LoaderCircle } from "lucide-react";
+import { CircleAlert, LoaderCircle } from "lucide-react";
 import { type FormEvent, useState } from "react";
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 
 import { ApiError, getPlayerNames, submitPlayer } from "../lib/api";
 import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
@@ -11,6 +11,7 @@ import { CodeEditor } from "./CodeEditor";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "./ui/field";
 
 export function GameSubmissionPanel({ gameSlug }: { gameSlug: string }) {
+  const navigate = useNavigate();
   const [name, setName] = useState("");
   const [sourceCode, setSourceCode] = useState("");
   const playerNames = useQuery({
@@ -19,6 +20,9 @@ export function GameSubmissionPanel({ gameSlug }: { gameSlug: string }) {
   });
   const submission = useMutation({
     mutationFn: () => submitPlayer(gameSlug, { name, sourceCode }),
+    onSuccess: ({ playerVersionId }) => {
+      navigate(`/submissions/${playerVersionId}`);
+    },
   });
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -65,20 +69,6 @@ export function GameSubmissionPanel({ gameSlug }: { gameSlug: string }) {
             />
           </Field>
 
-          {submission.isSuccess && (
-            <Alert role="status">
-              <CircleCheck />
-              <AlertTitle>提交成功</AlertTitle>
-              <AlertDescription className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <span>提交已受理，可查看评测详情。</span>
-                <Button asChild size="sm" variant="outline">
-                  <Link to={`/submissions/${submission.data.playerVersionId}`}>
-                    查看评测详情
-                  </Link>
-                </Button>
-              </AlertDescription>
-            </Alert>
-          )}
           {submission.isError && (
             <Alert variant="destructive">
               <CircleAlert />
