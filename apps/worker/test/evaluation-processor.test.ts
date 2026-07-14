@@ -11,6 +11,7 @@ import type {
 import {
   EvaluationProcessor,
   runGomokuEvaluation,
+  runQuoridorEvaluation,
   type EvaluationRepository,
   type FinishEvaluationInput,
 } from "../src/evaluation-processor.js";
@@ -96,6 +97,25 @@ function completedTurn(turnId: number, output: string): JudgeTurnResult {
   };
 }
 
+class ScriptedSession implements InteractiveJudgeSession {
+  readonly inputs: string[] = [];
+  #turn = 0;
+
+  constructor(private readonly outputs: readonly string[]) {}
+
+  async playTurn(stdin: string): Promise<JudgeTurnResult> {
+    this.inputs.push(stdin);
+    const output = this.outputs[this.#turn];
+    this.#turn += 1;
+    if (output === undefined) throw new Error("script has no next move");
+    return completedTurn(this.#turn, output);
+  }
+
+  async finish(): Promise<JudgeResult> {
+    return acceptedResult();
+  }
+}
+
 function judgeWithSessions(
   playerSession: InteractiveJudgeSession,
   opponentSession: InteractiveJudgeSession,
@@ -133,6 +153,25 @@ test("coordinates two sandboxed C++ programs for a complete game", async () => {
   assert.equal(run.playerTotalCpuNs, player.turns * 10);
   assert.equal(run.opponentTotalCpuNs, opponent.turns * 10);
   assert.ok(run.replay.moves.every((move, index) => move.seat === index % 2));
+});
+
+test("coordinates quoridor protocol initialization and alternating moves", async () => {
+  const opponent = new ScriptedSession(
+    Array.from({ length: 8 }, (_, index) => `0 4 ${index + 1}\n`),
+  );
+  const player = new ScriptedSession(
+    Array.from({ length: 7 }, (_, index) =>
+      index % 2 === 0 ? "0 3 8\n" : "0 4 8\n",
+    ),
+  );
+
+  const run = await runQuoridorEvaluation(player, opponent);
+
+  assert.equal(run.verdict, "ACCEPTED");
+  assert.deepEqual(run.replay.result, { type: "win", winner: 0 });
+  assert.equal(opponent.inputs[0], "1 0\n");
+  assert.equal(player.inputs[0], "1 1\n0 4 1\n");
+  assert.equal(run.replay.moves.length, 15);
 });
 
 test("compiles both database-backed sources before running", async () => {

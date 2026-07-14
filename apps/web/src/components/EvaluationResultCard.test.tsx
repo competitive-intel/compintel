@@ -1,7 +1,11 @@
 import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { evaluationFixture, replayFixture } from "../test/fixtures";
+import {
+  evaluationFixture,
+  quoridorReplayFixture,
+  replayFixture,
+} from "../test/fixtures";
 import { renderWithProviders } from "../test/render";
 import { EvaluationResultCard } from "./EvaluationResultCard";
 
@@ -95,6 +99,13 @@ describe("EvaluationResultCard", () => {
     expect(screen.queryByText("CPU 时间")).not.toBeInTheDocument();
     fireEvent.click(trigger);
     expect(screen.getByText("CPU 时间")).toBeVisible();
+  });
+
+  it("selects the quoridor replay board by game slug", () => {
+    renderCard({ replay: quoridorReplayFixture() });
+    expect(
+      screen.getByRole("img", { name: "路墙棋对局终局棋盘" }),
+    ).toBeInTheDocument();
   });
 });
 

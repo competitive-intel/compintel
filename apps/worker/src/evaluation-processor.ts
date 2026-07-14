@@ -3,9 +3,19 @@ import {
   formatGomokuMove,
   GomokuGame,
   parseGomokuMove,
+  createQuoridorInitialization,
+  formatQuoridorMove,
+  parseQuoridorMove,
+  QuoridorGame,
   type GomokuSeat,
+  type QuoridorSeat,
 } from "@compintel/game-core";
-import type { GameResourceLimits, GomokuReplay } from "@compintel/contracts";
+import type {
+  GameReplay,
+  GameResourceLimits,
+  GomokuReplay,
+  QuoridorReplay,
+} from "@compintel/contracts";
 import type {
   InteractiveJudgeSession,
   JudgeClient,
@@ -53,7 +63,7 @@ export interface FinishEvaluationInput {
   opponentWallTimeNs?: bigint | undefined;
   opponentMemoryBytes?: bigint | undefined;
   errorMessage?: string | undefined;
-  replay?: GomokuReplay | undefined;
+  replay?: GameReplay | undefined;
 }
 
 export interface EvaluationRepository {
@@ -104,7 +114,10 @@ export class EvaluationProcessor {
     if (evaluation.status === "FINISHED") {
       return;
     }
-    if (evaluation.gameSlug !== "gomoku") {
+    if (
+      evaluation.gameSlug !== "gomoku" &&
+      evaluation.gameSlug !== "quoridor"
+    ) {
       throw new Error(`unsupported game: ${evaluation.gameSlug}`);
     }
     const compilation = await this.judge.compileCpp(evaluation.sourceCode);
@@ -167,12 +180,20 @@ export class EvaluationProcessor {
           compilation.result.status,
           compileLog,
         );
-        const run = await runGomokuEvaluation(
-          playerSession,
-          opponentSession,
-          1,
-          evaluation.resourceLimits,
-        );
+        const run =
+          evaluation.gameSlug === "gomoku"
+            ? await runGomokuEvaluation(
+                playerSession,
+                opponentSession,
+                1,
+                evaluation.resourceLimits,
+              )
+            : await runQuoridorEvaluation(
+                playerSession,
+                opponentSession,
+                1,
+                evaluation.resourceLimits,
+              );
         const playerSandbox = run.playerSandboxResult;
         const opponentSandbox = run.opponentSandboxResult;
         await this.repository.finish(evaluationId, {
@@ -208,6 +229,132 @@ export class EvaluationProcessor {
       await this.judge.deleteFile(executableFileId).catch(() => undefined);
     }
   }
+}
+
+interface QuoridorRunResult {
+  verdict: EvaluationVerdict;
+  stdout: string;
+  playerSandboxResult: JudgeResult;
+  opponentSandboxResult: JudgeResult;
+  playerTotalCpuNs: number;
+  opponentTotalCpuNs: number;
+  replay: QuoridorReplay;
+  errorMessage?: string;
+}
+
+export async function runQuoridorEvaluation(
+  playerSession: InteractiveJudgeSession,
+  opponentSession: InteractiveJudgeSession,
+  userSeat: QuoridorSeat = 1,
+  resourceLimits: GameResourceLimits = DEFAULT_GOMOKU_RESOURCE_LIMITS,
+): Promise<QuoridorRunResult> {
+  const game = new QuoridorGame();
+  const outputs: string[] = [];
+  let playerTotalCpuNs = 0;
+  let opponentTotalCpuNs = 0;
+  let verdict: EvaluationVerdict = "ACCEPTED";
+  let failureMessage: string | undefined;
+  let playerSandboxResult!: JudgeResult;
+  let opponentSandboxResult!: JudgeResult;
+  const inputs: [string, string] = [
+    createQuoridorInitialization(0),
+    createQuoridorInitialization(1),
+  ];
+  let currentSeat: QuoridorSeat = 0;
+
+  try {
+    while (game.result.type === "playing") {
+      const isPlayerTurn = currentSeat === userSeat;
+      const session = isPlayerTurn ? playerSession : opponentSession;
+      let turn: JudgeTurnResult;
+      try {
+        turn = await session.playTurn(inputs[currentSeat]);
+        inputs[currentSeat] = "";
+      } catch (error) {
+        if (!(error instanceof JudgePlayerOutputError)) throw error;
+        if (isPlayerTurn) {
+          verdict = "INVALID_MOVE";
+          failureMessage = error.message;
+        } else {
+          verdict = "INTERNAL_ERROR";
+          failureMessage = `platform opponent produced invalid output: ${error.message}`;
+        }
+        break;
+      }
+      if (isPlayerTurn) {
+        playerTotalCpuNs = Math.max(playerTotalCpuNs, turn.totalCpu);
+      } else {
+        opponentTotalCpuNs = Math.max(opponentTotalCpuNs, turn.totalCpu);
+      }
+      if (turn.type !== "turnCompleted") {
+        if (isPlayerTurn) {
+          ({ verdict, errorMessage: failureMessage } = verdictForTurn(
+            turn,
+            resourceLimits,
+          ));
+        } else {
+          verdict = "INTERNAL_ERROR";
+          failureMessage = `platform opponent failed: ${verdictForTurn(turn, resourceLimits).errorMessage}`;
+        }
+        break;
+      }
+
+      const output = turn.output ?? "";
+      if (isPlayerTurn) outputs.push(output);
+      try {
+        const move = parseQuoridorMove(output);
+        game.play(currentSeat, move);
+        const otherSeat: QuoridorSeat = currentSeat === 0 ? 1 : 0;
+        inputs[otherSeat] += formatQuoridorMove(move);
+      } catch (error) {
+        if (isPlayerTurn) {
+          verdict = "INVALID_MOVE";
+          failureMessage = errorMessage(error);
+        } else {
+          verdict = "INTERNAL_ERROR";
+          failureMessage = `platform opponent made an invalid move: ${errorMessage(error)}`;
+        }
+        break;
+      }
+      if (game.result.type !== "playing") break;
+      currentSeat = currentSeat === 0 ? 1 : 0;
+    }
+  } finally {
+    [playerSandboxResult, opponentSandboxResult] = await Promise.all([
+      playerSession.finish(),
+      opponentSession.finish(),
+    ]);
+  }
+
+  const playerSandboxFailure = verdictForSandboxFailure(
+    playerSandboxResult.status,
+  );
+  if (playerSandboxFailure !== undefined) {
+    verdict = playerSandboxFailure;
+    failureMessage ??= `sandbox finished with status: ${playerSandboxResult.status}`;
+  }
+  const opponentSandboxFailure = verdictForSandboxFailure(
+    opponentSandboxResult.status,
+  );
+  if (opponentSandboxFailure !== undefined && verdict === "ACCEPTED") {
+    verdict = "INTERNAL_ERROR";
+    failureMessage = `platform opponent sandbox finished with status: ${opponentSandboxResult.status}`;
+  }
+  return {
+    verdict,
+    stdout: outputs.join(""),
+    playerSandboxResult,
+    opponentSandboxResult,
+    playerTotalCpuNs,
+    opponentTotalCpuNs,
+    replay: {
+      gameSlug: "quoridor",
+      userSeat,
+      moves: [...game.moves],
+      result: game.result,
+    },
+    ...(failureMessage === undefined ? {} : { errorMessage: failureMessage }),
+  };
 }
 
 export async function runGomokuEvaluation(

@@ -61,7 +61,7 @@ CompIntel 是一个面向算法竞赛选手的通用 AI 对战平台。用户提
 
 - Node.js 不得使用 `child_process`、`worker_threads` 或其他本地执行方式运行任何用户或平台 C++ 程序。编译和运行统一经过 `packages/judge-client`。
 - Worker 每个 Evaluation 只处理一组固定的用户版本与平台版本。双方分别编译，分别建立长驻 `/stream` 会话。
-- 当前交互实现只支持 `game.slug = gomoku` 和 `docs/tech/games/protocol/gomoku_v1.md`。新增目录记录不等于 Worker 自动支持新游戏；扩展游戏时必须同步增加规则核心、协议驱动、Worker 分派、测试和文档。
+- 当前交互实现支持 `game.slug = gomoku` 与 `game.slug = quoridor`，协议分别见 `docs/tech/games/protocol/gomoku_v1.md` 和 `docs/tech/games/protocol/quoridor_v1.md`。新增目录记录不等于 Worker 自动支持新游戏；扩展游戏时必须同步增加规则核心、协议驱动、Worker 分派、测试和文档。
 - `game-core` 只维护确定性的规则和状态，不包含平台对手策略、数据库、队列或沙箱代码。
 - 对局必须分别限制和记录：单步 CPU、单方整局累计 CPU、单步墙上时间、内存、输出和进程数。墙上时间只是阻塞保护，不能替代 CPU 限制。
 - 用户侧编译/运行/协议错误映射为明确 verdict。平台对手编译失败、非法输出或运行失败属于平台配置错误，Evaluation 应为 `INTERNAL_ERROR`。
@@ -80,7 +80,7 @@ CompIntel 是一个面向算法竞赛选手的通用 AI 对战平台。用户提
 - `packages/db/prisma/schema.prisma` 是模型真相源；修改后运行 Prisma generate、format，并新增或简化迁移。
 - 项目尚未正式上线。数据库变更优先保持最终 Schema 和迁移历史清晰，不添加无需求的双写、旧字段回退或兼容分支。
 - 不要无提示重置本地数据库。只有用户明确要求清库/重建时，才执行 `prisma migrate reset --force`，随后 seed、重启服务并做健康检查。
-- seed 当前只 upsert 管理员和五子棋游戏目录，不安装内置 Player。管理员需通过游戏管理页面创建并启用至少一个平台 C++ Player。
+- seed 当前只 upsert 管理员、五子棋与路墙棋游戏目录，不安装内置 Player。管理员需通过游戏管理页面创建并启用至少一个平台 C++ Player。
 - 源码和 replay 当前直接保存在 PostgreSQL。S3/MinIO 是后续方向，尚未接入运行链路；引入时应保留摘要与不可变版本语义，大对象改存对象键。
 
 ## 前端约定

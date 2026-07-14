@@ -60,6 +60,42 @@ export const gomokuReplaySchema = z.object({
   result: gomokuReplayResultSchema,
 });
 
+export const quoridorReplayMoveSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal(0),
+    x: z.number().int().min(0).max(8),
+    y: z.number().int().min(0).max(8),
+    seat: z.union([z.literal(0), z.literal(1)]),
+  }),
+  z.object({
+    type: z.literal(1),
+    x: z.number().int().min(1).max(8),
+    y: z.number().int().min(1).max(8),
+    orientation: z.union([z.literal(0), z.literal(1)]),
+    seat: z.union([z.literal(0), z.literal(1)]),
+  }),
+]);
+
+export const quoridorReplayResultSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("playing") }),
+  z.object({
+    type: z.literal("win"),
+    winner: z.union([z.literal(0), z.literal(1)]),
+  }),
+]);
+
+export const quoridorReplaySchema = z.object({
+  gameSlug: z.literal("quoridor"),
+  userSeat: z.union([z.literal(0), z.literal(1)]),
+  moves: z.array(quoridorReplayMoveSchema),
+  result: quoridorReplayResultSchema,
+});
+
+export const gameReplaySchema = z.discriminatedUnion("gameSlug", [
+  gomokuReplaySchema,
+  quoridorReplaySchema,
+]);
+
 export const evaluationSchema = z.object({
   id: z.string(),
   opponentVersionId: z.string(),
@@ -78,7 +114,7 @@ export const evaluationSchema = z.object({
   wallTimeNs: z.string().nullable(),
   memoryBytes: z.string().nullable(),
   errorMessage: z.string().nullable(),
-  replay: gomokuReplaySchema.nullable(),
+  replay: gameReplaySchema.nullable(),
   createdAt: z.iso.datetime(),
   startedAt: z.iso.datetime().nullable(),
   finishedAt: z.iso.datetime().nullable(),
@@ -132,3 +168,5 @@ export type SubmissionRecord = z.infer<typeof submissionRecordSchema>;
 export type SubmissionRecordList = z.infer<typeof submissionRecordListSchema>;
 export type SubmissionDetail = z.infer<typeof submissionDetailSchema>;
 export type GomokuReplay = z.infer<typeof gomokuReplaySchema>;
+export type QuoridorReplay = z.infer<typeof quoridorReplaySchema>;
+export type GameReplay = z.infer<typeof gameReplaySchema>;
