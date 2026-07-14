@@ -112,6 +112,36 @@ test("wins after reaching the opposite edge", () => {
   }
 });
 
+test("ends as move_limit after each seat plays 100 moves without a goal win", () => {
+  const game = new QuoridorGame();
+  for (let turn = 0; turn < 199; turn += 1) {
+    const seat = (turn % 2) as 0 | 1;
+    // Shuttle between two safe squares so neither pawn ever reaches a goal edge.
+    const pawn = game.pawn(seat);
+    if (seat === 0) {
+      game.play(0, {
+        type: 0,
+        x: 4,
+        y: pawn.y === 0 ? 1 : 0,
+      });
+    } else {
+      game.play(1, {
+        type: 0,
+        x: 4,
+        y: pawn.y === 8 ? 7 : 8,
+      });
+    }
+    assert.equal(game.result.type, "playing");
+  }
+  const result = game.play(1, {
+    type: 0,
+    x: 4,
+    y: game.pawn(1).y === 8 ? 7 : 8,
+  });
+  assert.deepEqual(result, { type: "move_limit" });
+  assert.equal(game.moves.length, 200);
+});
+
 function gameWithPawnsFacing(): QuoridorGame {
   const game = new QuoridorGame();
   for (let y = 1; y <= 4; y += 1) {

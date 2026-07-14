@@ -82,6 +82,7 @@ export const quoridorReplayResultSchema = z.discriminatedUnion("type", [
     type: z.literal("win"),
     winner: z.union([z.literal(0), z.literal(1)]),
   }),
+  z.object({ type: z.literal("move_limit") }),
 ]);
 
 export const quoridorReplaySchema = z.object({

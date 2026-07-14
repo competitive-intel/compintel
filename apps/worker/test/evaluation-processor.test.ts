@@ -99,6 +99,7 @@ function completedTurn(turnId: number, output: string): JudgeTurnResult {
 
 class ScriptedSession implements InteractiveJudgeSession {
   readonly inputs: string[] = [];
+  turns = 0;
   #turn = 0;
 
   constructor(private readonly outputs: readonly string[]) {}
@@ -107,6 +108,7 @@ class ScriptedSession implements InteractiveJudgeSession {
     this.inputs.push(stdin);
     const output = this.outputs[this.#turn];
     this.#turn += 1;
+    this.turns += 1;
     if (output === undefined) throw new Error("script has no next move");
     return completedTurn(this.#turn, output);
   }
@@ -174,6 +176,28 @@ test("coordinates quoridor protocol initialization and alternating moves", async
   assert.equal(run.replay.moves.length, 15);
 });
 
+test("ends quoridor as move_limit after 100 moves each without a goal win", async () => {
+  // Seat 0 (platform opponent) and seat 1 (user) shuttle on the start files.
+  const opponent = new ScriptedSession(
+    Array.from({ length: 100 }, (_, index) =>
+      index % 2 === 0 ? "0 4 1\n" : "0 4 0\n",
+    ),
+  );
+  const player = new ScriptedSession(
+    Array.from({ length: 100 }, (_, index) =>
+      index % 2 === 0 ? "0 4 7\n" : "0 4 8\n",
+    ),
+  );
+
+  const run = await runQuoridorEvaluation(player, opponent);
+
+  assert.equal(run.verdict, "ACCEPTED");
+  assert.deepEqual(run.replay.result, { type: "move_limit" });
+  assert.equal(run.replay.moves.length, 200);
+  assert.equal(opponent.turns, 100);
+  assert.equal(player.turns, 100);
+});
+
 test("compiles both database-backed sources before running", async () => {
   const repository = new MemoryRepository();
   const compiledSources: string[] = [];
@@ -229,9 +253,52 @@ test("starts both players with resource limits from the game", async () => {
       (value) =>
         value.moveCpuLimitNs === 250_000_000 &&
         value.totalCpuLimitNs === 8_000_000_000 &&
-        value.memoryLimitBytes === 384 * 1024 * 1024,
+        value.memoryLimitBytes === 384 * 1024 * 1024 &&
+        value.processClockLimitNs === undefined,
     ),
   );
+});
+
+test("starts quoridor sessions with a 300s process clock limit", async () => {
+  const repository = new MemoryRepository();
+  repository.start = async () => ({
+    status: "QUEUED" as const,
+    sourceCode: "// user source",
+    gameSlug: "quoridor",
+    resourceLimits: {
+      moveCpuLimitMs: 100,
+      totalCpuLimitMs: 5_000,
+      memoryLimitMiB: 256,
+    },
+    opponent: {
+      sourceCode: "// platform source",
+    },
+  });
+  const options: Parameters<JudgeClient["startInteractive"]>[1][] = [];
+  const opponent = new ScriptedSession(
+    Array.from({ length: 8 }, (_, index) => `0 4 ${index + 1}\n`),
+  );
+  const player = new ScriptedSession(
+    Array.from({ length: 7 }, (_, index) =>
+      index % 2 === 0 ? "0 3 8\n" : "0 4 8\n",
+    ),
+  );
+  const judge = judgeWithSessions(player, opponent);
+  const startInteractive = judge.startInteractive.bind(judge);
+  judge.startInteractive = async (fileId, receivedOptions) => {
+    options.push(receivedOptions);
+    return startInteractive(fileId, receivedOptions);
+  };
+
+  await new EvaluationProcessor(repository, judge).process("evaluation-id");
+
+  assert.equal(options.length, 2);
+  assert.ok(
+    options.every(
+      (value) => value.processClockLimitNs === 300_000_000_000,
+    ),
+  );
+  assert.equal(repository.finished?.verdict, "ACCEPTED");
 });
 
 test("reports an invalid user move without losing sandbox metrics", async () => {

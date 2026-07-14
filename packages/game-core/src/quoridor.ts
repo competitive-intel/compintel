@@ -1,6 +1,8 @@
 export const QUORIDOR_PROTOCOL_VERSION = 1;
 export const QUORIDOR_BOARD_SIZE = 9;
 export const QUORIDOR_WALLS_PER_PLAYER = 10;
+/** Each seat may play at most this many moves; after both reach the cap without a goal win, the match ends as move_limit. */
+export const QUORIDOR_MAX_MOVES_PER_PLAYER = 100;
 
 export type QuoridorSeat = 0 | 1;
 export type QuoridorWallOrientation = 0 | 1;
@@ -22,7 +24,9 @@ export interface QuoridorWallMove extends QuoridorPosition {
 export type QuoridorMove = QuoridorPawnMove | QuoridorWallMove;
 export type QuoridorPlayedMove = QuoridorMove & { seat: QuoridorSeat };
 export type QuoridorGameResult =
-  { type: "playing" } | { type: "win"; winner: QuoridorSeat };
+  | { type: "playing" }
+  | { type: "win"; winner: QuoridorSeat }
+  | { type: "move_limit" };
 
 const CARDINAL_DIRECTIONS = [
   [0, -1],
@@ -127,10 +131,23 @@ export class QuoridorGame {
     const pawn = this.#pawns[seat];
     if ((seat === 0 && pawn.y === 8) || (seat === 1 && pawn.y === 0)) {
       this.#result = { type: "win", winner: seat };
+    } else if (
+      this.#movesPerSeat(0) >= QUORIDOR_MAX_MOVES_PER_PLAYER &&
+      this.#movesPerSeat(1) >= QUORIDOR_MAX_MOVES_PER_PLAYER
+    ) {
+      this.#result = { type: "move_limit" };
     } else {
       this.#nextSeat = otherSeat(seat);
     }
     return this.#result;
+  }
+
+  #movesPerSeat(seat: QuoridorSeat): number {
+    let count = 0;
+    for (const move of this.#moves) {
+      if (move.seat === seat) count += 1;
+    }
+    return count;
   }
 
   #movePawn(seat: QuoridorSeat, move: QuoridorPawnMove): void {

@@ -29,4 +29,16 @@ describe("QuoridorReplayBoard", () => {
     expect(screen.getByTitle("先手棋子：(4, 0)")).toBeInTheDocument();
     expect(container.querySelectorAll("[data-wall]")).toHaveLength(0);
   });
+
+  it("labels move_limit as a user loss", () => {
+    renderWithProviders(
+      <QuoridorReplayBoard
+        replay={quoridorReplayFixture({
+          moves: [],
+          result: { type: "move_limit" },
+        })}
+      />,
+    );
+    expect(screen.getByText("步数上限，你的程序判负")).toBeInTheDocument();
+  });
 });

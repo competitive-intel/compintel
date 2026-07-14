@@ -82,11 +82,23 @@ const DEFAULT_GOMOKU_RESOURCE_LIMITS: GameResourceLimits = {
   memoryLimitMiB: 256,
 };
 
-const GOMOKU_STATIC_LIMITS = {
+const SHARED_STATIC_LIMITS = {
   wallLimitNs: 1_000_000_000,
   maxOutputBytes: 64,
   stackLimitBytes: 128 * 1024 * 1024,
   processLimit: 8,
+} as const;
+
+const GOMOKU_STATIC_LIMITS = {
+  ...SHARED_STATIC_LIMITS,
+} as const;
+
+/** Whole-match wall clock for quoridor (also applied as process clockLimit). */
+export const QUORIDOR_MATCH_WALL_MS = 300_000;
+
+const QUORIDOR_STATIC_LIMITS = {
+  ...SHARED_STATIC_LIMITS,
+  processClockLimitNs: QUORIDOR_MATCH_WALL_MS * 1_000_000,
 } as const;
 
 interface GomokuRunResult {
@@ -174,6 +186,9 @@ export class EvaluationProcessor {
           executableFileId,
           opponentExecutableFileId,
           evaluation.resourceLimits,
+          evaluation.gameSlug === "quoridor"
+            ? QUORIDOR_STATIC_LIMITS
+            : GOMOKU_STATIC_LIMITS,
         );
         await this.repository.markRunning(
           evaluationId,
@@ -261,9 +276,15 @@ export async function runQuoridorEvaluation(
     createQuoridorInitialization(1),
   ];
   let currentSeat: QuoridorSeat = 0;
+  const matchDeadlineMs = Date.now() + QUORIDOR_MATCH_WALL_MS;
 
   try {
     while (game.result.type === "playing") {
+      if (Date.now() >= matchDeadlineMs) {
+        verdict = "TIME_LIMIT_EXCEEDED";
+        failureMessage = `match wall time exceeded ${QUORIDOR_MATCH_WALL_MS / 1000}s`;
+        break;
+      }
       const isPlayerTurn = currentSeat === userSeat;
       const session = isPlayerTurn ? playerSession : opponentSession;
       let turn: JudgeTurnResult;
@@ -482,9 +503,12 @@ async function startBothSessions(
   playerExecutableFileId: string,
   opponentExecutableFileId: string,
   resourceLimits: GameResourceLimits,
+  staticLimits:
+    | typeof GOMOKU_STATIC_LIMITS
+    | typeof QUORIDOR_STATIC_LIMITS = GOMOKU_STATIC_LIMITS,
 ): Promise<[InteractiveJudgeSession, InteractiveJudgeSession]> {
   const limits = {
-    ...GOMOKU_STATIC_LIMITS,
+    ...staticLimits,
     moveCpuLimitNs: resourceLimits.moveCpuLimitMs * 1_000_000,
     totalCpuLimitNs: resourceLimits.totalCpuLimitMs * 1_000_000,
     memoryLimitBytes: resourceLimits.memoryLimitMiB * 1024 * 1024,

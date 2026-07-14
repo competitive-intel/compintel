@@ -214,6 +214,7 @@ function ReplayFact({ label, value }: { label: string; value: string }) {
 
 function replayResultText(replay: QuoridorReplay): string {
   if (replay.result.type === "playing") return "异常中止";
+  if (replay.result.type === "move_limit") return "步数上限，你的程序判负";
   return replay.result.winner === replay.userSeat
     ? "你的程序获胜"
     : "平台程序获胜";

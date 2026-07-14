@@ -269,7 +269,8 @@ class WebSocketJudgeSession implements InteractiveJudgeSession {
             { name: "stderr", max: 64 * 1024 },
           ],
           cpuLimit: this.options.totalCpuLimitNs,
-          clockLimit: 300 * NANOSECOND,
+          clockLimit:
+            this.options.processClockLimitNs ?? 300 * NANOSECOND,
           memoryLimit: this.options.memoryLimitBytes,
           stackLimit: this.options.stackLimitBytes,
           procLimit: this.options.processLimit,

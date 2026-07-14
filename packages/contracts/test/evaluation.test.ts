@@ -46,6 +46,15 @@ test("validates quoridor pawn and wall replay moves", () => {
   });
   assert.equal(replay.gameSlug, "quoridor");
   assert.equal(replay.moves.length, 2);
+  assert.equal(
+    gameReplaySchema.parse({
+      gameSlug: "quoridor",
+      userSeat: 1,
+      moves: [],
+      result: { type: "move_limit" },
+    }).result.type,
+    "move_limit",
+  );
   assert.throws(() =>
     gameReplaySchema.parse({
       gameSlug: "quoridor",
