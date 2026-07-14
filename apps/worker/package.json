@@ -12,7 +12,6 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1085.0",
-    "@compintel/builtin-players": "workspace:*",
     "@compintel/config": "workspace:*",
     "@compintel/contracts": "workspace:*",
     "@compintel/db": "workspace:*",

@@ -1,27 +1,26 @@
-# 内置 Player 实现
+# 内置 C++ Player
 
-## 定位
+## 定位与数据模型
 
-内置策略是 `PlayerKind.PLATFORM` 的特殊 Player，而不是游戏规则的一部分。`packages/game-core` 只负责状态、规则、走法校验和胜负判断；所有平台策略实现放在独立的 `packages/builtin-players` 包中。
+内置程序是 `Player.kind = PLATFORM` 的特殊 Player。它们与用户 Player 一样使用 `language = CPP` 的不可变 `PlayerVersion`，源码正文和 SHA-256 摘要保存在数据库中；仓库不再包含平台策略源码、实现注册表或 `implementationKey`。
 
-数据库中的每个内置 `PlayerVersion` 使用：
+`Player.isActive` 控制一个平台 Player 是否参与新提交的评测，正整数 `Player.weight` 表示击败该对手对提交得分的贡献，越高级的对手应配置越高权重。停用不会删除 Player、历史版本或已有 Evaluation。管理员修改源码时不会覆盖当前版本，而是创建版本号递增的新 `PlayerVersion`；已经创建的 Evaluation 始终引用原来的 `opponentVersionId`，并快照创建时的 `opponentWeight`，因此后台后续修改源码、权重或启用状态都不会改变历史评测口径。
 
-- `language = BUILTIN`；
-- 不可变且全局唯一语义的 `implementationKey`，例如 `gomoku:block-four-random:v1`；
-- 递增的 Player 版本号。
+种子脚本只创建游戏目录和可选管理员，不安装任何内置程序。新环境必须由管理员在游戏管理页面录入 C++ 源码，避免平台策略重新变成仓库配置。
 
-实现行为发生变化时必须创建新文件、新 `implementationKey` 和新 `PlayerVersion`，不能原地修改旧 key 的语义。旧实现需要继续保留，直到所有引用它的 Evaluation、Match 和回放都不再要求复现。
+## 选择与执行
 
-## 注册与执行
+创建用户版本时，API 枚举同一游戏下所有 `PLATFORM + isActive=true` 的 Player，并为每个 Player 选择版本号最大的 C++ 版本。每个对手分别创建一条 Evaluation。没有启用的内置程序时，提交返回 `503 EVALUATION_OPPONENT_UNAVAILABLE`。
 
-`packages/builtin-players/src/registry.ts` 是实现注册表。Worker 从 Evaluation 绑定的 `opponentVersionId` 读取 `implementationKey`，再按游戏 slug 和 key 解析实现。每局对战由版本化实现描述符创建一个独立 Player 实例，允许策略保存局内状态，同时避免并发 Evaluation 共享可变状态。未知 key 或游戏不匹配属于平台配置错误，不会退回到“最新实现”。
+Worker 从 Evaluation 固定绑定的用户版本和平台版本读取两份 C++ 源码，分别通过 `judge-client` 交给 go-judge 编译，再启动两个独立的 `/stream` 会话。Node.js 只负责按游戏规则转发每回合输入、校验双方输出和记录回放，不加载或直接执行任何一方程序。
 
-创建 Evaluation 时，API 根据当前评测策略选择一个已安装的内置 PlayerVersion，并把其 ID 写入 `opponentVersionId`。因此更新默认对手只影响之后创建的 Evaluation。
+两方使用相同的单步 CPU、累计 CPU、墙上时间、内存、输出和进程数限制。用户程序的编译、运行或非法操作映射为对应 verdict；平台对手编译失败、输出非法或运行失败属于平台配置错误，评测保存为 `INTERNAL_ERROR`。Evaluation 分别保存双方的编译状态、编译日志、运行状态和资源摘要，便于管理员定位有问题的平台版本。
 
-新增内置 Player 的步骤：
+## 管理约束
 
-1. 在对应游戏目录新增带版本后缀的实现，并定义新的 `implementationKey`。
-2. 将实现加入注册表。
-3. 在数据库 seed 或管理流程中创建对应的 PLATFORM PlayerVersion。
-4. 如需作为默认评测对手，更新 API 的评测对手选择配置。
-5. 为策略行为、注册解析和完整对局补充测试。
+- 名称在同一游戏的平台 Player 中唯一。
+- C++ 源码不能为空且最大 256 KiB。
+- 保存与当前版本完全相同的源码会返回冲突，不创建无意义版本。
+- 名称、启用状态和正整数权重可以原地更新；源码只能通过新版本更新。
+- 新评测只选最新版本，历史版本只用于已经绑定它的 Evaluation；Match 目前只有数据模型骨架，尚未接入运行链路。
+- 平台程序与用户程序都必须遵守游戏详情页公布的同一通信协议。

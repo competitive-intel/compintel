@@ -15,7 +15,6 @@ enum PlayerKind {
 
 enum PlayerLanguage {
   CPP
-  BUILTIN
 }
 
 enum EvaluationStatus {
@@ -50,24 +49,66 @@ enum MatchOutcome {
   ERROR
 }
 
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 model User {
-  id          String   @id @default(cuid())
-  externalId  String   @unique
-  displayName String?
-  players     Player[]
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String         @id @default(cuid())
+  username       String         @unique
+  displayName    String
+  passwordHash   String
+  role           UserRole       @default(USER)
+  approvalStatus ApprovalStatus @default(PENDING)
+  reviewedAt     DateTime?
+  reviewedById   String?
+  reviewedBy     User?          @relation("UserReviews", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedUsers  User[]         @relation("UserReviews")
+  sessions       Session[]
+  players        Player[]
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@index([approvalStatus, createdAt])
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model Game {
-  id           String   @id @default(cuid())
-  slug         String   @unique
-  name         String
-  rulesVersion String
-  players      Player[]
-  matches      Match[]
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id              String   @id @default(cuid())
+  slug            String   @unique
+  name            String
+  summary         String
+  description     String
+  rulesMarkdown   String
+  rulesVersion    String
+  moveCpuLimitMs  Int      @default(100)
+  totalCpuLimitMs Int      @default(5000)
+  memoryLimitMiB  Int      @default(256)
+  isPublished     Boolean  @default(false)
+  players         Player[]
+  matches         Match[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([isPublished, createdAt])
 }
 
 model Player {
@@ -78,6 +119,8 @@ model Player {
   owner     User?           @relation(fields: [ownerId], references: [id], onDelete: Restrict)
   kind      PlayerKind
   name      String
+  isActive  Boolean         @default(true)
+  weight    Int             @default(1)
   versions  PlayerVersion[]
   createdAt DateTime        @default(now())
   updatedAt DateTime        @updatedAt
@@ -92,9 +135,9 @@ model PlayerVersion {
   player              Player             @relation(fields: [playerId], references: [id], onDelete: Cascade)
   version             Int
   language            PlayerLanguage
-  sourceCode          String?
-  sourceSha256        String?
-  implementationKey   String?            @unique
+  sourceCode          String
+  sourceSha256        String
+  score               Int?
   evaluations         Evaluation[]       @relation("EvaluationSubject")
   opponentEvaluations Evaluation[]       @relation("EvaluationOpponent")
   matchParticipants   MatchParticipant[]
@@ -104,26 +147,36 @@ model PlayerVersion {
 }
 
 model Evaluation {
-  id                String             @id @default(cuid())
-  playerVersionId   String
-  playerVersion     PlayerVersion      @relation("EvaluationSubject", fields: [playerVersionId], references: [id], onDelete: Cascade)
-  opponentVersionId String?
-  opponentVersion   PlayerVersion?     @relation("EvaluationOpponent", fields: [opponentVersionId], references: [id], onDelete: Restrict)
-  status            EvaluationStatus   @default(QUEUED)
-  verdict           EvaluationVerdict?
-  attempts          Int                @default(0)
-  compileStatus     String?
-  compileLog        String?
-  runStatus         String?
-  stdout            String?
-  stderr            String?
-  cpuTimeNs         BigInt?
-  wallTimeNs        BigInt?
-  memoryBytes       BigInt?
-  errorMessage      String?
-  createdAt         DateTime           @default(now())
-  startedAt         DateTime?
-  finishedAt        DateTime?
+  id                    String             @id @default(cuid())
+  playerVersionId       String
+  playerVersion         PlayerVersion      @relation("EvaluationSubject", fields: [playerVersionId], references: [id], onDelete: Cascade)
+  opponentVersionId     String
+  opponentVersion       PlayerVersion      @relation("EvaluationOpponent", fields: [opponentVersionId], references: [id], onDelete: Restrict)
+  opponentWeight        Int                @default(1)
+  won                   Boolean            @default(false)
+  status                EvaluationStatus   @default(QUEUED)
+  verdict               EvaluationVerdict?
+  attempts              Int                @default(0)
+  compileStatus         String?
+  compileLog            String?
+  opponentCompileStatus String?
+  opponentCompileLog    String?
+  runStatus             String?
+  opponentRunStatus     String?
+  stdout                String?
+  stderr                String?
+  opponentStderr        String?
+  cpuTimeNs             BigInt?
+  wallTimeNs            BigInt?
+  memoryBytes           BigInt?
+  opponentCpuTimeNs     BigInt?
+  opponentWallTimeNs    BigInt?
+  opponentMemoryBytes   BigInt?
+  errorMessage          String?
+  replay                Json?
+  createdAt             DateTime           @default(now())
+  startedAt             DateTime?
+  finishedAt            DateTime?
 
   @@index([playerVersionId, createdAt])
   @@index([opponentVersionId])

@@ -1,4 +1,8 @@
-import type { PrismaClient } from "@compintel/db";
+import {
+  Prisma,
+  type PrismaClient,
+  updateEvaluationAndScore,
+} from "@compintel/db";
 
 import type {
   EvaluationRepository,
@@ -13,7 +17,9 @@ export class PrismaEvaluationRepository implements EvaluationRepository {
     const evaluation = await this.db.evaluation.findUnique({
       where: { id: evaluationId },
       include: {
-        opponentVersion: true,
+        opponentVersion: {
+          include: { player: { select: { kind: true } } },
+        },
         playerVersion: {
           include: { player: { include: { game: true } } },
         },
@@ -22,13 +28,9 @@ export class PrismaEvaluationRepository implements EvaluationRepository {
     if (evaluation === null) {
       return null;
     }
-    if (
-      evaluation.opponentVersion === null ||
-      evaluation.opponentVersion.language !== "BUILTIN" ||
-      evaluation.opponentVersion.implementationKey === null
-    ) {
+    if (evaluation.opponentVersion.player.kind !== "PLATFORM") {
       throw new Error(
-        `evaluation ${evaluationId} does not reference a built-in opponent version`,
+        `evaluation ${evaluationId} does not reference a C++ platform opponent version`,
       );
     }
     if (evaluation.status !== "FINISHED") {
@@ -45,12 +47,14 @@ export class PrismaEvaluationRepository implements EvaluationRepository {
     return {
       status: evaluation.status,
       sourceCode: evaluation.playerVersion.sourceCode,
-      language: evaluation.playerVersion.language,
       gameSlug: evaluation.playerVersion.player.game.slug,
+      resourceLimits: {
+        moveCpuLimitMs: evaluation.playerVersion.player.game.moveCpuLimitMs,
+        totalCpuLimitMs: evaluation.playerVersion.player.game.totalCpuLimitMs,
+        memoryLimitMiB: evaluation.playerVersion.player.game.memoryLimitMiB,
+      },
       opponent: {
-        playerVersionId: evaluation.opponentVersion.id,
-        language: evaluation.opponentVersion.language,
-        implementationKey: evaluation.opponentVersion.implementationKey,
+        sourceCode: evaluation.opponentVersion.sourceCode,
       },
     };
   }
@@ -70,36 +74,63 @@ export class PrismaEvaluationRepository implements EvaluationRepository {
     evaluationId: string,
     result: FinishEvaluationInput,
   ): Promise<void> {
-    await this.db.evaluation.update({
-      where: { id: evaluationId },
-      data: {
-        status: "FINISHED",
-        verdict: result.verdict,
-        ...(result.compileStatus === undefined
-          ? {}
-          : { compileStatus: result.compileStatus }),
-        ...(result.compileLog === undefined
-          ? {}
-          : { compileLog: result.compileLog }),
-        ...(result.runStatus === undefined
-          ? {}
-          : { runStatus: result.runStatus }),
-        ...(result.stdout === undefined ? {} : { stdout: result.stdout }),
-        ...(result.stderr === undefined ? {} : { stderr: result.stderr }),
-        ...(result.cpuTimeNs === undefined
-          ? {}
-          : { cpuTimeNs: result.cpuTimeNs }),
-        ...(result.wallTimeNs === undefined
-          ? {}
-          : { wallTimeNs: result.wallTimeNs }),
-        ...(result.memoryBytes === undefined
-          ? {}
-          : { memoryBytes: result.memoryBytes }),
-        ...(result.errorMessage === undefined
-          ? {}
-          : { errorMessage: result.errorMessage }),
-        finishedAt: new Date(),
-      },
+    await updateEvaluationAndScore(this.db, evaluationId, {
+      status: "FINISHED",
+      verdict: result.verdict,
+      ...(result.compileStatus === undefined
+        ? {}
+        : { compileStatus: result.compileStatus }),
+      ...(result.compileLog === undefined
+        ? {}
+        : { compileLog: result.compileLog }),
+      ...(result.opponentCompileStatus === undefined
+        ? {}
+        : { opponentCompileStatus: result.opponentCompileStatus }),
+      ...(result.opponentCompileLog === undefined
+        ? {}
+        : { opponentCompileLog: result.opponentCompileLog }),
+      ...(result.runStatus === undefined
+        ? {}
+        : { runStatus: result.runStatus }),
+      ...(result.opponentRunStatus === undefined
+        ? {}
+        : { opponentRunStatus: result.opponentRunStatus }),
+      ...(result.stdout === undefined ? {} : { stdout: result.stdout }),
+      ...(result.stderr === undefined ? {} : { stderr: result.stderr }),
+      ...(result.opponentStderr === undefined
+        ? {}
+        : { opponentStderr: result.opponentStderr }),
+      ...(result.cpuTimeNs === undefined
+        ? {}
+        : { cpuTimeNs: result.cpuTimeNs }),
+      ...(result.wallTimeNs === undefined
+        ? {}
+        : { wallTimeNs: result.wallTimeNs }),
+      ...(result.memoryBytes === undefined
+        ? {}
+        : { memoryBytes: result.memoryBytes }),
+      ...(result.opponentCpuTimeNs === undefined
+        ? {}
+        : { opponentCpuTimeNs: result.opponentCpuTimeNs }),
+      ...(result.opponentWallTimeNs === undefined
+        ? {}
+        : { opponentWallTimeNs: result.opponentWallTimeNs }),
+      ...(result.opponentMemoryBytes === undefined
+        ? {}
+        : { opponentMemoryBytes: result.opponentMemoryBytes }),
+      ...(result.errorMessage === undefined
+        ? {}
+        : { errorMessage: result.errorMessage }),
+      ...(result.replay === undefined
+        ? {}
+        : {
+            replay: result.replay as Prisma.InputJsonValue,
+            won:
+              result.verdict === "ACCEPTED" &&
+              result.replay.result.type === "win" &&
+              result.replay.result.winner === result.replay.userSeat,
+          }),
+      finishedAt: new Date(),
     });
   }
 }

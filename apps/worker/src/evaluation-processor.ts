@@ -1,14 +1,11 @@
 import {
-  resolveBuiltinPlayer,
-  type GomokuBuiltinPlayerImplementation,
-} from "@compintel/builtin-players";
-import {
   createGomokuInitialization,
   formatGomokuMove,
   GomokuGame,
   parseGomokuMove,
   type GomokuSeat,
 } from "@compintel/game-core";
+import type { GameResourceLimits, GomokuReplay } from "@compintel/contracts";
 import type {
   InteractiveJudgeSession,
   JudgeClient,
@@ -30,13 +27,11 @@ export type EvaluationVerdict =
 
 export interface EvaluationSource {
   status: "QUEUED" | "COMPILING" | "RUNNING" | "FINISHED";
-  sourceCode: string | null;
-  language: "CPP" | "BUILTIN";
+  sourceCode: string;
   gameSlug: string;
+  resourceLimits: GameResourceLimits;
   opponent: {
-    playerVersionId: string;
-    language: "BUILTIN";
-    implementationKey: string;
+    sourceCode: string;
   };
 }
 
@@ -44,13 +39,21 @@ export interface FinishEvaluationInput {
   verdict: EvaluationVerdict;
   compileStatus?: string | undefined;
   compileLog?: string | undefined;
+  opponentCompileStatus?: string | undefined;
+  opponentCompileLog?: string | undefined;
   runStatus?: string | undefined;
+  opponentRunStatus?: string | undefined;
   stdout?: string | undefined;
   stderr?: string | undefined;
+  opponentStderr?: string | undefined;
   cpuTimeNs?: bigint | undefined;
   wallTimeNs?: bigint | undefined;
   memoryBytes?: bigint | undefined;
+  opponentCpuTimeNs?: bigint | undefined;
+  opponentWallTimeNs?: bigint | undefined;
+  opponentMemoryBytes?: bigint | undefined;
   errorMessage?: string | undefined;
+  replay?: GomokuReplay | undefined;
 }
 
 export interface EvaluationRepository {
@@ -63,12 +66,15 @@ export interface EvaluationRepository {
   finish(evaluationId: string, result: FinishEvaluationInput): Promise<void>;
 }
 
-const GOMOKU_LIMITS = {
-  moveCpuLimitNs: 100_000_000,
-  totalCpuLimitNs: 5_000_000_000,
+const DEFAULT_GOMOKU_RESOURCE_LIMITS: GameResourceLimits = {
+  moveCpuLimitMs: 100,
+  totalCpuLimitMs: 5_000,
+  memoryLimitMiB: 256,
+};
+
+const GOMOKU_STATIC_LIMITS = {
   wallLimitNs: 1_000_000_000,
   maxOutputBytes: 64,
-  memoryLimitBytes: 256 * 1024 * 1024,
   stackLimitBytes: 128 * 1024 * 1024,
   processLimit: 8,
 } as const;
@@ -76,8 +82,11 @@ const GOMOKU_LIMITS = {
 interface GomokuRunResult {
   verdict: EvaluationVerdict;
   stdout: string;
-  sandboxResult: JudgeResult;
-  totalCpuNs: number;
+  playerSandboxResult: JudgeResult;
+  opponentSandboxResult: JudgeResult;
+  playerTotalCpuNs: number;
+  opponentTotalCpuNs: number;
+  replay: GomokuReplay;
   errorMessage?: string;
 }
 
@@ -95,17 +104,9 @@ export class EvaluationProcessor {
     if (evaluation.status === "FINISHED") {
       return;
     }
-    if (evaluation.language !== "CPP" || evaluation.sourceCode === null) {
-      throw new Error("evaluation does not reference C++ source code");
-    }
     if (evaluation.gameSlug !== "gomoku") {
       throw new Error(`unsupported game: ${evaluation.gameSlug}`);
     }
-    const opponent = resolveBuiltinPlayer(
-      evaluation.gameSlug,
-      evaluation.opponent.implementationKey,
-    );
-
     const compilation = await this.judge.compileCpp(evaluation.sourceCode);
     const compileLog = compilation.result.files?.stderr ?? "";
     if (
@@ -130,35 +131,79 @@ export class EvaluationProcessor {
 
     const executableFileId = compilation.executableFileId;
     try {
-      await this.repository.markRunning(
-        evaluationId,
-        compilation.result.status,
-        compileLog,
+      const opponentCompilation = await this.judge.compileCpp(
+        evaluation.opponent.sourceCode,
       );
-      const session = await this.judge.startInteractive(
-        executableFileId,
-        GOMOKU_LIMITS,
-      );
-      const run = await runGomokuEvaluation(
-        session,
-        opponent,
-        seededRandom(evaluationId),
-      );
-      const sandbox = run.sandboxResult;
-      await this.repository.finish(evaluationId, {
-        verdict: run.verdict,
-        compileStatus: compilation.result.status,
-        compileLog,
-        runStatus: sandbox.status,
-        stdout: run.stdout,
-        stderr: sandbox.files?.stderr ?? "",
-        cpuTimeNs: BigInt(Math.max(sandbox.time, run.totalCpuNs)),
-        wallTimeNs: BigInt(sandbox.runTime),
-        memoryBytes: BigInt(sandbox.memory),
-        ...(run.errorMessage === undefined
-          ? {}
-          : { errorMessage: run.errorMessage }),
-      });
+      const opponentCompileLog = opponentCompilation.result.files?.stderr ?? "";
+      if (
+        opponentCompilation.result.status !== "Accepted" ||
+        opponentCompilation.executableFileId === null
+      ) {
+        await this.repository.finish(evaluationId, {
+          verdict: "INTERNAL_ERROR",
+          compileStatus: compilation.result.status,
+          compileLog,
+          opponentCompileStatus: opponentCompilation.result.status,
+          opponentCompileLog,
+          errorMessage:
+            opponentCompilation.executableFileId === null &&
+            opponentCompilation.result.status === "Accepted"
+              ? "go-judge did not return an artifact for the platform opponent"
+              : `platform opponent compilation failed: ${opponentCompilation.result.error ?? opponentCompilation.result.status}`,
+        });
+        return;
+      }
+
+      const opponentExecutableFileId = opponentCompilation.executableFileId;
+      try {
+        const [playerSession, opponentSession] = await startBothSessions(
+          this.judge,
+          executableFileId,
+          opponentExecutableFileId,
+          evaluation.resourceLimits,
+        );
+        await this.repository.markRunning(
+          evaluationId,
+          compilation.result.status,
+          compileLog,
+        );
+        const run = await runGomokuEvaluation(
+          playerSession,
+          opponentSession,
+          1,
+          evaluation.resourceLimits,
+        );
+        const playerSandbox = run.playerSandboxResult;
+        const opponentSandbox = run.opponentSandboxResult;
+        await this.repository.finish(evaluationId, {
+          verdict: run.verdict,
+          compileStatus: compilation.result.status,
+          compileLog,
+          opponentCompileStatus: opponentCompilation.result.status,
+          opponentCompileLog,
+          runStatus: playerSandbox.status,
+          opponentRunStatus: opponentSandbox.status,
+          stdout: run.stdout,
+          stderr: playerSandbox.files?.stderr ?? "",
+          opponentStderr: opponentSandbox.files?.stderr ?? "",
+          cpuTimeNs: BigInt(Math.max(playerSandbox.time, run.playerTotalCpuNs)),
+          wallTimeNs: BigInt(playerSandbox.runTime),
+          memoryBytes: BigInt(playerSandbox.memory),
+          opponentCpuTimeNs: BigInt(
+            Math.max(opponentSandbox.time, run.opponentTotalCpuNs),
+          ),
+          opponentWallTimeNs: BigInt(opponentSandbox.runTime),
+          opponentMemoryBytes: BigInt(opponentSandbox.memory),
+          replay: run.replay,
+          ...(run.errorMessage === undefined
+            ? {}
+            : { errorMessage: run.errorMessage }),
+        });
+      } finally {
+        await this.judge
+          .deleteFile(opponentExecutableFileId)
+          .catch(() => undefined);
+      }
     } finally {
       await this.judge.deleteFile(executableFileId).catch(() => undefined);
     }
@@ -166,81 +211,158 @@ export class EvaluationProcessor {
 }
 
 export async function runGomokuEvaluation(
-  session: InteractiveJudgeSession,
-  opponent: GomokuBuiltinPlayerImplementation,
-  random: () => number = Math.random,
+  playerSession: InteractiveJudgeSession,
+  opponentSession: InteractiveJudgeSession,
   userSeat: GomokuSeat = 1,
+  resourceLimits: GameResourceLimits = DEFAULT_GOMOKU_RESOURCE_LIMITS,
 ): Promise<GomokuRunResult> {
   const game = new GomokuGame();
-  const opponentPlayer = opponent.create({ random });
-  const platformSeat: GomokuSeat = userSeat === 0 ? 1 : 0;
   const outputs: string[] = [];
-  let totalCpuNs = 0;
+  let playerTotalCpuNs = 0;
+  let opponentTotalCpuNs = 0;
   let verdict: EvaluationVerdict = "ACCEPTED";
   let failureMessage: string | undefined;
-  let sandboxResult!: JudgeResult;
-
-  let input = createGomokuInitialization(userSeat);
-  if (platformSeat === 0) {
-    const opening = opponentPlayer.chooseMove(game, platformSeat);
-    game.play(platformSeat, opening);
-    input += formatGomokuMove(opening);
-  }
+  let playerSandboxResult!: JudgeResult;
+  let opponentSandboxResult!: JudgeResult;
+  const inputs: [string, string] = [
+    createGomokuInitialization(0),
+    createGomokuInitialization(1),
+  ];
+  let currentSeat: GomokuSeat = 0;
 
   try {
     while (game.result.type === "playing") {
+      const isPlayerTurn = currentSeat === userSeat;
+      const session = isPlayerTurn ? playerSession : opponentSession;
       let turn: JudgeTurnResult;
       try {
-        turn = await session.playTurn(input);
+        turn = await session.playTurn(inputs[currentSeat]);
+        inputs[currentSeat] = "";
       } catch (error) {
         if (!(error instanceof JudgePlayerOutputError)) {
           throw error;
         }
-        verdict = "INVALID_MOVE";
-        failureMessage = error.message;
+        if (isPlayerTurn) {
+          verdict = "INVALID_MOVE";
+          failureMessage = error.message;
+        } else {
+          verdict = "INTERNAL_ERROR";
+          failureMessage = `platform opponent produced invalid output: ${error.message}`;
+        }
         break;
       }
-      totalCpuNs = Math.max(totalCpuNs, turn.totalCpu);
+      if (isPlayerTurn) {
+        playerTotalCpuNs = Math.max(playerTotalCpuNs, turn.totalCpu);
+      } else {
+        opponentTotalCpuNs = Math.max(opponentTotalCpuNs, turn.totalCpu);
+      }
       if (turn.type !== "turnCompleted") {
-        ({ verdict, errorMessage: failureMessage } = verdictForTurn(turn));
+        if (isPlayerTurn) {
+          ({ verdict, errorMessage: failureMessage } = verdictForTurn(
+            turn,
+            resourceLimits,
+          ));
+        } else {
+          verdict = "INTERNAL_ERROR";
+          failureMessage = `platform opponent failed: ${verdictForTurn(turn, resourceLimits).errorMessage}`;
+        }
         break;
       }
 
       const output = turn.output ?? "";
-      outputs.push(output);
+      if (isPlayerTurn) outputs.push(output);
       try {
-        game.play(userSeat, parseGomokuMove(output, game.height, game.width));
+        const move = parseGomokuMove(output, game.height, game.width);
+        game.play(currentSeat, move);
+        const otherSeat: GomokuSeat = currentSeat === 0 ? 1 : 0;
+        inputs[otherSeat] += formatGomokuMove(move);
       } catch (error) {
-        verdict = "INVALID_MOVE";
-        failureMessage = errorMessage(error);
+        if (isPlayerTurn) {
+          verdict = "INVALID_MOVE";
+          failureMessage = errorMessage(error);
+        } else {
+          verdict = "INTERNAL_ERROR";
+          failureMessage = `platform opponent made an invalid move: ${errorMessage(error)}`;
+        }
         break;
       }
       if (game.result.type !== "playing") {
         break;
       }
-
-      const platformMove = opponentPlayer.chooseMove(game, platformSeat);
-      game.play(platformSeat, platformMove);
-      if (game.result.type !== "playing") {
-        break;
-      }
-      input = formatGomokuMove(platformMove);
+      currentSeat = currentSeat === 0 ? 1 : 0;
     }
   } finally {
-    sandboxResult = await session.finish();
+    [playerSandboxResult, opponentSandboxResult] = await Promise.all([
+      playerSession.finish(),
+      opponentSession.finish(),
+    ]);
   }
-  const sandboxFailure = verdictForSandboxFailure(sandboxResult.status);
-  if (sandboxFailure !== undefined) {
-    verdict = sandboxFailure;
-    failureMessage ??= `sandbox finished with status: ${sandboxResult.status}`;
+  const playerSandboxFailure = verdictForSandboxFailure(
+    playerSandboxResult.status,
+  );
+  if (playerSandboxFailure !== undefined) {
+    verdict = playerSandboxFailure;
+    failureMessage ??= `sandbox finished with status: ${playerSandboxResult.status}`;
+  }
+  const opponentSandboxFailure = verdictForSandboxFailure(
+    opponentSandboxResult.status,
+  );
+  if (opponentSandboxFailure !== undefined && verdict === "ACCEPTED") {
+    verdict = "INTERNAL_ERROR";
+    failureMessage = `platform opponent sandbox finished with status: ${opponentSandboxResult.status}`;
   }
   return {
     verdict,
     stdout: outputs.join(""),
-    sandboxResult,
-    totalCpuNs,
+    playerSandboxResult,
+    opponentSandboxResult,
+    playerTotalCpuNs,
+    opponentTotalCpuNs,
+    replay: {
+      gameSlug: "gomoku",
+      height: game.height,
+      width: game.width,
+      userSeat,
+      moves: [...game.moves],
+      result: game.result,
+    },
     ...(failureMessage === undefined ? {} : { errorMessage: failureMessage }),
   };
+}
+
+async function startBothSessions(
+  judge: JudgeClient,
+  playerExecutableFileId: string,
+  opponentExecutableFileId: string,
+  resourceLimits: GameResourceLimits,
+): Promise<[InteractiveJudgeSession, InteractiveJudgeSession]> {
+  const limits = {
+    ...GOMOKU_STATIC_LIMITS,
+    moveCpuLimitNs: resourceLimits.moveCpuLimitMs * 1_000_000,
+    totalCpuLimitNs: resourceLimits.totalCpuLimitMs * 1_000_000,
+    memoryLimitBytes: resourceLimits.memoryLimitMiB * 1024 * 1024,
+  };
+  const started = await Promise.allSettled([
+    judge.startInteractive(playerExecutableFileId, limits),
+    judge.startInteractive(opponentExecutableFileId, limits),
+  ]);
+  const failure = started.find(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  );
+  if (failure !== undefined) {
+    await Promise.allSettled(
+      started.flatMap((result) =>
+        result.status === "fulfilled" ? [result.value.finish()] : [],
+      ),
+    );
+    throw failure.reason;
+  }
+  const player = started[0];
+  const opponent = started[1];
+  if (player?.status !== "fulfilled" || opponent?.status !== "fulfilled") {
+    throw new Error("failed to start both sandbox sessions");
+  }
+  return [player.value, opponent.value];
 }
 
 function verdictForSandboxFailure(
@@ -263,7 +385,10 @@ function verdictForSandboxFailure(
   }
 }
 
-function verdictForTurn(turn: JudgeTurnResult): {
+function verdictForTurn(
+  turn: JudgeTurnResult,
+  resourceLimits: GameResourceLimits,
+): {
   verdict: EvaluationVerdict;
   errorMessage: string;
 } {
@@ -271,12 +396,12 @@ function verdictForTurn(turn: JudgeTurnResult): {
     case "moveCpuLimitExceeded":
       return {
         verdict: "TIME_LIMIT_EXCEEDED",
-        errorMessage: "single-turn CPU time exceeded 100ms",
+        errorMessage: `single-turn CPU time exceeded ${resourceLimits.moveCpuLimitMs}ms`,
       };
     case "totalCpuLimitExceeded":
       return {
         verdict: "TIME_LIMIT_EXCEEDED",
-        errorMessage: "total CPU time exceeded 5s",
+        errorMessage: `total CPU time exceeded ${resourceLimits.totalCpuLimitMs}ms`,
       };
     case "moveWallLimitExceeded":
       return {
@@ -332,19 +457,4 @@ function verdictForStatus(
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "invalid player output";
-}
-
-function seededRandom(seed: string): () => number {
-  let state = 0x811c9dc5;
-  for (const character of seed) {
-    state ^= character.codePointAt(0)!;
-    state = Math.imul(state, 0x01000193);
-  }
-  return () => {
-    state += 0x6d2b79f5;
-    let value = state;
-    value = Math.imul(value ^ (value >>> 15), value | 1);
-    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
-    return ((value ^ (value >>> 14)) >>> 0) / 4_294_967_296;
-  };
 }

@@ -4,6 +4,7 @@
   "include": [
     "src/**/*.ts",
     "generated/**/*.ts",
+    "test/**/*.ts",
     "prisma/seed.ts",
     "prisma.config.ts"
   ]

@@ -1,0 +1,7 @@
+[mcp_servers.shadcn]
+command = "pnpm"
+args = ["--dir", "apps/web", "exec", "shadcn", "mcp"]
+
+[mcp_servers.playwright]
+command = "pnpm"
+args = ["--dir", "apps/web", "dlx", "@playwright/mcp@latest"]

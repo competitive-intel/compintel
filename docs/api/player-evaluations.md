@@ -1,24 +1,17 @@
-# Player 提交与评测 API
+# Player 提交、评测记录与详情 API
 
-当前 API 提供五子棋 Player 的最小提交闭环。所有接口使用 JSON；除健康检查和游戏列表外，当前开发阶段通过 `x-user-id` 请求头标识用户。这个请求头只是认证适配器的临时边界，生产环境接入登录系统后应由认证插件写入可信用户身份，不能直接信任客户端提供的值。
+所有接口使用 JSON，并通过登录后获得的 `compintel_session` HttpOnly Cookie 验证用户。游戏必须已经发布。已审核用户可以查看所有用户提交的源码与评测结果；提交时 API 只会创建或复用当前用户自己的 Player。
 
-## 提交新 Player
+## 提交 Player 程序
 
 `POST /v1/games/:gameSlug/players`
-
-请求头：
-
-```text
-x-user-id: local-user-1
-content-type: application/json
-```
 
 请求体：
 
 ```json
 {
   "name": "center-bot",
-  "sourceCode": "#include <iostream>\nint main(){ std::cout << \"7 7\\n\"; }"
+  "sourceCode": "#include <iostream>\nint main() { return 0; }"
 }
 ```
 
@@ -26,61 +19,135 @@ content-type: application/json
 
 ```json
 {
-  "playerId": "...",
-  "playerVersionId": "...",
+  "playerId": "player-id",
+  "playerVersionId": "version-id",
   "version": 1,
-  "evaluationId": "...",
+  "evaluationIds": ["evaluation-id"],
   "evaluationStatus": "QUEUED"
 }
 ```
 
-Player 名称在同一用户、同一游戏内唯一。源码不能为空，最大为 256 KiB。
+同一用户在同一游戏中首次使用某个名称时创建 Player 和版本 1；再次使用相同名称调用此接口时复用该 Player，并自动创建当前最大版本号加 1 的不可变版本。不同用户可以使用相同名称，一份程序由游戏、用户、Player 名称和版本号共同确定。源码不能为空，最大 256 KiB。API 为所有已启用平台 Player 的最新 C++ 版本分别创建评测；没有可用平台程序时返回 `503 EVALUATION_OPPONENT_UNAVAILABLE`。
 
-## 提交新版本
+## 查询当前用户已用 Player 名称
 
-`POST /v1/players/:playerId/versions`
+`GET /v1/games/:gameSlug/players`
 
-请求头同上，请求体只包含 `sourceCode`。只有 Player 所有者可以提交版本。每次请求都会创建新的不可变 `PlayerVersion` 和独立 `Evaluation`，成功响应格式与首次提交相同。
+返回当前用户在该游戏中使用过的全部 Player 名称，按名称升序排列，供提交页自动补全：
 
-## 查询评测
-
-`GET /v1/evaluations/:evaluationId`
-
-请求必须携带 Player 所有者的 `x-user-id`。响应中的 `status` 依次为 `QUEUED`、`COMPILING`、`RUNNING`、`FINISHED`。`FINISHED` 时 `verdict` 为下列值之一：
-
-- `ACCEPTED`
-- `COMPILE_ERROR`
-- `RUNTIME_ERROR`
-- `TIME_LIMIT_EXCEEDED`
-- `MEMORY_LIMIT_EXCEEDED`
-- `OUTPUT_LIMIT_EXCEEDED`
-- `DANGEROUS_SYSCALL`
-- `INVALID_MOVE`
-- `INTERNAL_ERROR`
-
-CPU 时间、墙上时间和内存分别通过 `cpuTimeNs`、`wallTimeNs` 和 `memoryBytes` 返回。它们使用十进制字符串表示，避免 JavaScript JSON 数值精度损失。编译日志、标准输出和标准错误也会随结果返回，并已在沙箱请求中限制大小。
-
-响应中的 `opponentVersionId` 是本次评测绑定的内置对手版本。即使平台之后增加或升级内置策略，已经创建的评测仍使用原来的不可变版本。
-
-## 五子棋 Player 协议 v1
-
-程序会在同一个沙箱进程中完成整局多轮交互。初始化输入为：
-
-```text
-1
-15 15
-<seat>
+```json
+{
+  "names": ["center-bot", "defense-bot"]
+}
 ```
 
-`seat = 0` 是白方先手，读完初始化后直接输出第一步；`seat = 1` 是黑方后手，初始化后会先收到白方坐标。此后每轮先收到一行对手坐标，再输出并刷新一行自己的坐标：
+## 按游戏查询公开评测记录
 
-```text
-<X> <Y>
+`GET /v1/games/:gameSlug/submissions?page=1&pageSize=20`
+
+- `page` 默认为 `1`。
+- `pageSize` 默认为 `20`，最大为 `50`。
+- 记录按提交时间倒序排列，每个不可变 PlayerVersion 是一条记录。
+
+响应：
+
+```json
+{
+  "submissions": [
+    {
+      "id": "version-id",
+      "playerId": "player-id",
+      "playerName": "center-bot",
+      "version": 2,
+      "language": "CPP",
+      "author": {
+        "id": "user-id",
+        "username": "alice",
+        "displayName": "Alice"
+      },
+      "status": "RUNNING",
+      "evaluationSummary": {
+        "total": 3,
+        "finished": 2,
+        "won": 1
+      },
+      "score": null,
+      "createdAt": "2026-07-13T08:00:00.000Z"
+    }
+  ],
+  "page": 1,
+  "pageSize": 20,
+  "total": 1
+}
 ```
 
-完整的角色定义、生命周期、规则、资源限制和示例见[五子棋交互协议 v1](../tech/games/protocol/gomoku_v1.md)。
+聚合状态为 `QUEUED`、`RUNNING` 或 `FINISHED`。`won` 表示该版本已经击败的平台对手数量，不按对手权重折算；`score` 在全部 Evaluation 完成前为 `null`，完成后为 `floor(击败对手权重之和 / 全部对手权重之和 × 100)`。
 
-## 其他接口
+## 查询公开评测详情
 
-- `GET /health`：服务存活检查。
-- `GET /v1/games`：列出当前游戏。
+`GET /v1/submissions/:playerVersionId`
+
+详情响应包含列表记录的全部字段，以及游戏摘要、完整公开源码、源码摘要和该版本绑定的所有平台对手评测：
+
+```json
+{
+  "id": "version-id",
+  "playerId": "player-id",
+  "playerName": "center-bot",
+  "version": 2,
+  "language": "CPP",
+  "author": {
+    "id": "user-id",
+    "username": "alice",
+    "displayName": "Alice"
+  },
+  "status": "FINISHED",
+  "evaluationSummary": { "total": 1, "finished": 1, "won": 1 },
+  "score": 100,
+  "createdAt": "2026-07-13T08:00:00.000Z",
+  "game": {
+    "slug": "gomoku",
+    "name": "五子棋",
+    "rulesVersion": "gomoku-v1"
+  },
+  "sourceCode": "#include <iostream>\nint main() { return 0; }",
+  "sourceSha256": "...64 位十六进制摘要...",
+  "evaluations": [
+    {
+      "id": "evaluation-id",
+      "opponentVersionId": "platform-version-id",
+      "opponentName": "基准程序",
+      "opponentVersion": 3,
+      "opponentWeight": 5,
+      "won": true,
+      "status": "FINISHED",
+      "verdict": "ACCEPTED",
+      "compileStatus": "Accepted",
+      "compileLog": "",
+      "runStatus": "Accepted",
+      "stdout": "7 7\n",
+      "stderr": "",
+      "cpuTimeNs": "1000000",
+      "wallTimeNs": "2000000",
+      "memoryBytes": "1048576",
+      "errorMessage": null,
+      "replay": null,
+      "createdAt": "2026-07-13T08:00:00.000Z",
+      "startedAt": "2026-07-13T08:00:01.000Z",
+      "finishedAt": "2026-07-13T08:00:02.000Z"
+    }
+  ]
+}
+```
+
+评测状态依次为 `QUEUED`、`COMPILING`、`RUNNING`、`FINISHED`。终态 verdict 包括 `ACCEPTED`、`COMPILE_ERROR`、`RUNTIME_ERROR`、`TIME_LIMIT_EXCEEDED`、`MEMORY_LIMIT_EXCEEDED`、`OUTPUT_LIMIT_EXCEEDED`、`DANGEROUS_SYSCALL`、`INVALID_MOVE` 和 `INTERNAL_ERROR`。
+
+CPU 时间、墙上时间和内存使用十进制字符串表示，避免 JavaScript JSON 精度损失。当前五子棋评测完成后可返回棋盘尺寸、用户席位、全部落子和规则结果组成的 `replay`；其他游戏的回放结构将在对应规则引擎接入时扩展。
+
+`opponentWeight` 是 Evaluation 创建时的平台对手权重快照，`won` 表示该局是否由用户方获胜。之后调整内置 Player 的权重不会回改历史分数。
+
+## 公开边界
+
+公开表示所有已登录且审核通过的用户均可读取，不要求是提交所有者。未发布游戏及平台内置 Player 源码不通过这些接口公开。接口只返回用户 Player 的不可变版本，保证已展示的源码与历史评测严格对应。
+
+五子棋通信协议见[五子棋交互协议 v1](../tech/games/protocol/gomoku_v1.md)。

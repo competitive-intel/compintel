@@ -15,7 +15,11 @@ const queue = new Queue<PlayerEvaluationJob>(PLAYER_EVALUATION_QUEUE, {
   connection: redisConnection(config.REDIS_URL),
 });
 const submissions = new SubmissionService(db, queue);
-const app = buildApp({ db, submissions });
+const app = buildApp({
+  db,
+  submissions,
+  secureCookies: process.env.NODE_ENV === "production",
+});
 
 const shutdown = async (): Promise<void> => {
   await app.close();
