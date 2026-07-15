@@ -168,6 +168,7 @@ test("lists only the current user's player names for the game", async () => {
 });
 
 test("rejects submissions when the 24h sliding window is full", async () => {
+  let countArgs: { where?: unknown } | undefined;
   const transaction = {
     game: {
       async findFirst() {
@@ -175,7 +176,8 @@ test("rejects submissions when the 24h sliding window is full", async () => {
       },
     },
     playerVersion: {
-      async count() {
+      async count(args: { where?: unknown }) {
+        countArgs = args;
         return 50;
       },
       async create() {
@@ -189,6 +191,7 @@ test("rejects submissions when the 24h sliding window is full", async () => {
     },
   } as unknown as PrismaClient;
 
+  const before = Date.now();
   await assert.rejects(
     new SubmissionService(db, { async add() {} }).createPlayer(
       "user-1",
@@ -200,4 +203,85 @@ test("rejects submissions when the 24h sliding window is full", async () => {
       error.statusCode === 429 &&
       error.code === "SUBMISSION_RATE_LIMIT",
   );
+  const after = Date.now();
+
+  assert.ok(countArgs !== undefined);
+  const where = countArgs.where as {
+    createdAt: { gte: Date };
+    player: { ownerId: string; gameId: string; kind: string };
+  };
+  assert.equal(where.player.ownerId, "user-1");
+  assert.equal(where.player.gameId, "game-1");
+  assert.equal(where.player.kind, "USER");
+  assert.ok(where.createdAt.gte instanceof Date);
+  const windowMs = 24 * 60 * 60 * 1_000;
+  assert.ok(where.createdAt.gte.getTime() >= before - windowMs);
+  assert.ok(where.createdAt.gte.getTime() <= after - windowMs);
+});
+
+test("allows submissions when the 24h sliding window has remaining capacity", async () => {
+  let countArgs: { where?: unknown } | undefined;
+  let createdVersion = 0;
+  const transaction = {
+    game: {
+      async findFirst() {
+        return { id: "game-1", slug: "gomoku", isPublished: true };
+      },
+    },
+    player: {
+      async upsert() {
+        return { id: "player-1", versions: [] };
+      },
+      async findMany() {
+        return [{ weight: 1, versions: [{ id: "opponent-version-1" }] }];
+      },
+    },
+    playerVersion: {
+      async count(args: { where?: unknown }) {
+        countArgs = args;
+        return 49;
+      },
+      async create({ data }: { data: { version: number } }) {
+        createdVersion = data.version;
+        return { id: "player-version-1", version: data.version };
+      },
+    },
+    evaluation: {
+      async create() {
+        return { id: "evaluation-1" };
+      },
+    },
+  };
+  const db = {
+    async $transaction(callback: (tx: typeof transaction) => unknown) {
+      return callback(transaction);
+    },
+  } as unknown as PrismaClient;
+
+  const before = Date.now();
+  const result = await new SubmissionService(db, {
+    async add() {},
+  }).createPlayer("user-1", "gomoku", {
+    name: "bot",
+    sourceCode: "int main() {}",
+  });
+  const after = Date.now();
+
+  assert.equal(createdVersion, 1);
+  assert.equal(result.playerId, "player-1");
+  assert.equal(result.version, 1);
+  assert.deepEqual(result.evaluationIds, ["evaluation-1"]);
+
+  assert.ok(countArgs !== undefined);
+  const where = countArgs.where as {
+    createdAt: { gte: Date };
+    player: { ownerId: string; gameId: string; kind: string };
+  };
+  assert.equal(where.player.ownerId, "user-1");
+  assert.equal(where.player.gameId, "game-1");
+  assert.equal(where.player.kind, "USER");
+  assert.ok(where.createdAt.gte instanceof Date);
+  const windowMs = 24 * 60 * 60 * 1_000;
+  assert.ok(where.createdAt.gte.getTime() >= before - windowMs);
+  assert.ok(where.createdAt.gte.getTime() <= after - windowMs);
 });

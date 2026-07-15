@@ -116,11 +116,14 @@ export function AdminUsersPage() {
                     key={user.id}
                     user={user}
                     busy={actionPending && actionUserId === user.id}
+                    disabled={actionPending}
                     onBan={() => {
+                      if (actionPending) return;
                       unban.reset();
                       ban.mutate(user.id);
                     }}
                     onUnban={() => {
+                      if (actionPending) return;
                       ban.reset();
                       unban.mutate(user.id);
                     }}
@@ -150,11 +153,13 @@ export function AdminUsersPage() {
 function UserRow({
   user,
   busy,
+  disabled,
   onBan,
   onUnban,
 }: {
   user: AdminUser;
   busy: boolean;
+  disabled: boolean;
   onBan: () => void;
   onUnban: () => void;
 }) {
@@ -180,7 +185,12 @@ function UserRow({
       </TableCell>
       <TableCell className="px-4 py-2.5 text-right">
         {user.role === "USER" && (
-          <Button size="sm" disabled={busy} variant="outline" onClick={onBan}>
+          <Button
+            size="sm"
+            disabled={disabled}
+            variant="outline"
+            onClick={onBan}
+          >
             {busy ? (
               <LoaderCircle className="animate-spin" data-icon="inline-start" />
             ) : (
@@ -190,7 +200,7 @@ function UserRow({
           </Button>
         )}
         {user.role === "BANNED" && (
-          <Button size="sm" disabled={busy} onClick={onUnban}>
+          <Button size="sm" disabled={disabled} onClick={onUnban}>
             {busy ? (
               <LoaderCircle className="animate-spin" data-icon="inline-start" />
             ) : null}

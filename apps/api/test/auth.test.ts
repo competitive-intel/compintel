@@ -144,6 +144,150 @@ test("banned users cannot create a session", async () => {
   );
 });
 
+test("administrators cannot ban themselves", async () => {
+  const db = {
+    user: {
+      async findUnique() {
+        assert.fail("should not look up the target when banning self");
+      },
+    },
+  } as unknown as PrismaClient;
+
+  await assert.rejects(
+    new AuthService(db).banUser("admin-1", "admin-1"),
+    (error: unknown) =>
+      error instanceof HttpError &&
+      error.statusCode === 400 &&
+      error.code === "CANNOT_BAN_SELF",
+  );
+});
+
+test("administrators cannot ban another admin", async () => {
+  const db = {
+    user: {
+      async findUnique() {
+        return {
+          ...databaseUser({
+            passwordHash: "unused",
+            emailVerifiedAt: new Date("2026-07-15T08:00:00.000Z"),
+            role: "ADMIN",
+          }),
+          id: "admin-2",
+          players: [],
+        };
+      },
+    },
+  } as unknown as PrismaClient;
+
+  await assert.rejects(
+    new AuthService(db).banUser("admin-1", "admin-2"),
+    (error: unknown) =>
+      error instanceof HttpError &&
+      error.statusCode === 400 &&
+      error.code === "CANNOT_BAN_ADMIN",
+  );
+});
+
+test("administrators cannot ban an already-banned user", async () => {
+  const db = {
+    user: {
+      async findUnique() {
+        return {
+          ...databaseUser({
+            passwordHash: "unused",
+            emailVerifiedAt: new Date("2026-07-15T08:00:00.000Z"),
+            role: "BANNED",
+          }),
+          id: "user-2",
+          players: [],
+        };
+      },
+    },
+  } as unknown as PrismaClient;
+
+  await assert.rejects(
+    new AuthService(db).banUser("admin-1", "user-2"),
+    (error: unknown) =>
+      error instanceof HttpError &&
+      error.statusCode === 400 &&
+      error.code === "USER_ALREADY_BANNED",
+  );
+});
+
+test("administrators cannot unban a non-banned user", async () => {
+  const db = {
+    user: {
+      async findUnique() {
+        return {
+          ...databaseUser({
+            passwordHash: "unused",
+            emailVerifiedAt: new Date("2026-07-15T08:00:00.000Z"),
+            role: "USER",
+          }),
+          id: "user-2",
+          players: [],
+        };
+      },
+    },
+  } as unknown as PrismaClient;
+
+  await assert.rejects(
+    new AuthService(db).unbanUser("admin-1", "user-2"),
+    (error: unknown) =>
+      error instanceof HttpError &&
+      error.statusCode === 400 &&
+      error.code === "USER_NOT_BANNED",
+  );
+});
+
+test("authenticate rejects banned sessions and deletes them", async () => {
+  const token = "banned-session-token";
+  const tokenHash = createHash("sha256").update(token).digest("hex");
+  let findUniqueArgs:
+    | {
+        where: { tokenHash: string };
+        include: { user: true };
+      }
+    | undefined;
+  let deletedSessionId: string | undefined;
+  const db = {
+    session: {
+      async findUnique(args: {
+        where: { tokenHash: string };
+        include: { user: true };
+      }) {
+        findUniqueArgs = args;
+        return {
+          id: "session-banned",
+          tokenHash,
+          userId: "user-1",
+          expiresAt: new Date("2026-07-22T08:00:00.000Z"),
+          user: databaseUser({
+            passwordHash: "hash",
+            emailVerifiedAt: new Date("2026-07-15T08:00:00.000Z"),
+            role: "BANNED",
+          }),
+        };
+      },
+      async deleteMany({ where }: { where: { id: string } }) {
+        deletedSessionId = where.id;
+        return { count: 1 };
+      },
+    },
+  } as unknown as PrismaClient;
+
+  const user = await new AuthService(db, {
+    now: () => new Date("2026-07-15T08:00:00.000Z"),
+  }).authenticate(token);
+
+  assert.equal(user, null);
+  assert.deepEqual(findUniqueArgs, {
+    where: { tokenHash },
+    include: { user: true },
+  });
+  assert.equal(deletedSessionId, "session-banned");
+});
+
 test("verified users receive an opaque persisted session", async () => {
   const passwordHash = await hashPassword("password123");
   let storedTokenHash = "";
@@ -602,11 +746,7 @@ test("register does not reclaim banned unverified conflicts", async () => {
   };
   const db = {
     user: {
-      async findMany({
-        where,
-      }: {
-        where: { role?: { not: string } };
-      }) {
+      async findMany({ where }: { where: { role?: { not: string } } }) {
         assert.deepEqual(where.role, { not: "BANNED" });
         // Banned unverified rows are excluded by the query filter.
         return [];

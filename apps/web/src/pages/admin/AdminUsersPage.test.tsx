@@ -138,10 +138,13 @@ describe("AdminUsersPage", () => {
     vi.mocked(banUser).mockRejectedValue(
       new ApiError("不能封禁管理员账号", 400, "CANNOT_BAN_ADMIN"),
     );
-    vi.mocked(unbanUser).mockResolvedValue({
-      ...banned,
-      role: "USER",
-    });
+    let resolveUnban!: (value: typeof banned & { role: "USER" }) => void;
+    vi.mocked(unbanUser).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveUnban = resolve;
+        }),
+    );
     renderPage();
 
     await userEvent.click(await screen.findByRole("button", { name: "封禁" }));
@@ -155,8 +158,13 @@ describe("AdminUsersPage", () => {
       within(bannedRow!).getByRole("button", { name: "解封" }),
     );
 
-    expect(await within(bannedRow!).findByText("用户")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    resolveUnban({
+      ...banned,
+      role: "USER",
+    });
+    expect(await within(bannedRow!).findByText("用户")).toBeInTheDocument();
   });
 });
 

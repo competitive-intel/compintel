@@ -14,7 +14,7 @@
 
 ## 后端技术
 
-- [身份验证实现](tech/backend/authentication.md)：账号审核状态、密码摘要、服务端会话和授权边界。
+- [身份验证实现](tech/backend/authentication.md)：邮箱验证、封禁、密码摘要、服务端会话和授权边界。
 - [游戏目录实现](tech/backend/game-catalog.md)：游戏元数据、草稿与发布边界及稳定 slug 约束。
 - [Player 评测实现](tech/backend/player-evaluation.md)：数据模型、异步执行流程、沙箱边界与当前 MVP 限制。
 - [内置 Player 实现](tech/backend/builtin-players.md)：平台 Player 的版本、注册、执行与升级约束。

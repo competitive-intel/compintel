@@ -66,7 +66,7 @@ export class SubmissionService {
           if (recentSubmissionCount >= SUBMISSION_RATE_LIMIT) {
             throw new HttpError(
               429,
-              "提交过于频繁，每个游戏每 24 小时最多提交 50 次",
+              `提交过于频繁，每个游戏每 24 小时最多提交 ${SUBMISSION_RATE_LIMIT} 次`,
               "SUBMISSION_RATE_LIMIT",
             );
           }

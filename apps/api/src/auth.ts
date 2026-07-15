@@ -371,14 +371,7 @@ export class AuthService {
   async listUsers(): Promise<AdminUser[]> {
     const users = await this.db.user.findMany({
       orderBy: [{ role: "asc" }, { createdAt: "desc" }],
-      include: {
-        players: {
-          where: { kind: "USER" },
-          select: {
-            _count: { select: { versions: true } },
-          },
-        },
-      },
+      include: adminUserPlayersInclude,
     });
     return users.map((user) =>
       serializeAdminUser(user, countUserSubmissions(user.players)),
@@ -386,42 +379,21 @@ export class AuthService {
   }
 
   async banUser(administratorId: string, userId: string): Promise<AdminUser> {
-    if (administratorId === userId) {
-      throw new HttpError(400, "不能封禁自己的账号", "CANNOT_BAN_SELF");
-    }
-    const existing = await this.db.user.findUnique({
-      where: { id: userId },
-      include: {
-        players: {
-          where: { kind: "USER" },
-          select: {
-            _count: { select: { versions: true } },
-          },
-        },
+    await this.requireModerationTarget(administratorId, userId, {
+      selfMessage: "不能封禁自己的账号",
+      adminMessage: "不能封禁管理员账号",
+      allowedRoles: ["USER"],
+      roleError: {
+        message: "该账号已被封禁",
+        code: "USER_ALREADY_BANNED",
       },
     });
-    if (existing === null) {
-      throw new HttpError(404, "用户不存在", "USER_NOT_FOUND");
-    }
-    if (existing.role === "ADMIN") {
-      throw new HttpError(400, "不能封禁管理员账号", "CANNOT_BAN_ADMIN");
-    }
-    if (existing.role === "BANNED") {
-      throw new HttpError(400, "该账号已被封禁", "USER_ALREADY_BANNED");
-    }
 
     const user = await this.db.$transaction(async (tx) => {
       const updated = await tx.user.update({
         where: { id: userId },
         data: { role: "BANNED" },
-        include: {
-          players: {
-            where: { kind: "USER" },
-            select: {
-              _count: { select: { versions: true } },
-            },
-          },
-        },
+        include: adminUserPlayersInclude,
       });
       await tx.session.deleteMany({ where: { userId } });
       return updated;
@@ -430,43 +402,55 @@ export class AuthService {
   }
 
   async unbanUser(administratorId: string, userId: string): Promise<AdminUser> {
+    await this.requireModerationTarget(administratorId, userId, {
+      selfMessage: "不能解封自己的账号",
+      adminMessage: "不能解封管理员账号",
+      allowedRoles: ["BANNED"],
+      roleError: {
+        message: "该账号未被封禁",
+        code: "USER_NOT_BANNED",
+      },
+    });
+
+    const user = await this.db.user.update({
+      where: { id: userId },
+      data: { role: "USER" },
+      include: adminUserPlayersInclude,
+    });
+    return serializeAdminUser(user, countUserSubmissions(user.players));
+  }
+
+  private async requireModerationTarget(
+    administratorId: string,
+    userId: string,
+    options: {
+      selfMessage: string;
+      adminMessage: string;
+      allowedRoles: ReadonlyArray<"USER" | "BANNED">;
+      roleError: { message: string; code: string };
+    },
+  ) {
     if (administratorId === userId) {
-      throw new HttpError(400, "不能解封自己的账号", "CANNOT_BAN_SELF");
+      throw new HttpError(400, options.selfMessage, "CANNOT_BAN_SELF");
     }
     const existing = await this.db.user.findUnique({
       where: { id: userId },
-      include: {
-        players: {
-          where: { kind: "USER" },
-          select: {
-            _count: { select: { versions: true } },
-          },
-        },
-      },
+      include: adminUserPlayersInclude,
     });
     if (existing === null) {
       throw new HttpError(404, "用户不存在", "USER_NOT_FOUND");
     }
     if (existing.role === "ADMIN") {
-      throw new HttpError(400, "不能解封管理员账号", "CANNOT_BAN_ADMIN");
+      throw new HttpError(400, options.adminMessage, "CANNOT_BAN_ADMIN");
     }
-    if (existing.role !== "BANNED") {
-      throw new HttpError(400, "该账号未被封禁", "USER_NOT_BANNED");
+    if (!isAllowedModerationRole(existing.role, options.allowedRoles)) {
+      throw new HttpError(
+        400,
+        options.roleError.message,
+        options.roleError.code,
+      );
     }
-
-    const user = await this.db.user.update({
-      where: { id: userId },
-      data: { role: "USER" },
-      include: {
-        players: {
-          where: { kind: "USER" },
-          select: {
-            _count: { select: { versions: true } },
-          },
-        },
-      },
-    });
-    return serializeAdminUser(user, countUserSubmissions(user.players));
+    return existing;
   }
 
   /**
@@ -643,6 +627,22 @@ function serializeUser(user: {
     role: user.role,
     createdAt: user.createdAt.toISOString(),
   };
+}
+
+const adminUserPlayersInclude = {
+  players: {
+    where: { kind: "USER" as const },
+    select: {
+      _count: { select: { versions: true } },
+    },
+  },
+};
+
+function isAllowedModerationRole(
+  role: string,
+  allowedRoles: ReadonlyArray<"USER" | "BANNED">,
+): role is "USER" | "BANNED" {
+  return (allowedRoles as ReadonlyArray<string>).includes(role);
 }
 
 function countUserSubmissions(
