@@ -28,7 +28,7 @@ export const updateSystemSettingsSchema = z
       .max(32)
       .optional(),
     turnstileSiteKey: z.string().trim().max(128).optional(),
-    turnstileSecretKey: z.string().max(256).optional(),
+    turnstileSecretKey: z.string().trim().max(256).optional(),
   })
   .refine(
     (value) =>

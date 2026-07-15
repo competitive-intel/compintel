@@ -2,7 +2,12 @@ import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError, resendVerification, verifyEmail } from "../../lib/api";
+import {
+  ApiError,
+  getCaptchaConfig,
+  resendVerification,
+  verifyEmail,
+} from "../../lib/api";
 import { renderWithProviders } from "../../test/render";
 import { userFixture } from "../../test/fixtures";
 import { VerifyEmailPage } from "./VerifyEmailPage";
@@ -13,6 +18,19 @@ vi.mock("../../lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../lib/api")>()),
   verifyEmail: vi.fn(),
   resendVerification: vi.fn(),
+  getCaptchaConfig: vi.fn(),
+}));
+vi.mock("../../components/TurnstileWidget", () => ({
+  TurnstileWidget: ({
+    onToken,
+  }: {
+    siteKey: string;
+    onToken: (token: string | null) => void;
+  }) => (
+    <button type="button" onClick={() => onToken("test-turnstile-token")}>
+      mock-turnstile
+    </button>
+  ),
 }));
 vi.mock("react-router-dom", async (importOriginal) => ({
   ...(await importOriginal<typeof import("react-router-dom")>()),
@@ -92,6 +110,39 @@ describe("VerifyEmailPage", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "发送过于频繁，请稍后再试",
     );
+  });
+
+  it("shows captcha and keeps resend disabled until a token is provided when TURNSTILE_REQUIRED", async () => {
+    vi.mocked(resendVerification).mockRejectedValue(
+      new ApiError("需要人机验证", 429, "TURNSTILE_REQUIRED"),
+    );
+    vi.mocked(getCaptchaConfig).mockResolvedValue({
+      turnstileSiteKey: "test-site-key",
+    });
+    renderWithProviders(<VerifyEmailPage />, {
+      initialEntries: [
+        { pathname: "/verify-email", state: { username: "member" } },
+      ],
+    });
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "重新发送验证码" }),
+    );
+
+    expect(await screen.findByText("需要人机验证")).toBeInTheDocument();
+    expect(getCaptchaConfig).toHaveBeenCalled();
+    expect(
+      screen.getByRole("button", { name: "mock-turnstile" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "重新发送验证码" }),
+    ).toBeDisabled();
+
+    await userEvent.click(screen.getByRole("button", { name: "mock-turnstile" }));
+
+    expect(
+      screen.getByRole("button", { name: "重新发送验证码" }),
+    ).toBeEnabled();
   });
 
   it("disables the verify button while verification is pending", async () => {

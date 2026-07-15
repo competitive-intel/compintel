@@ -70,4 +70,11 @@ test("system settings update requires at least one field", () => {
     }).success,
     true,
   );
+  const secretKeyResult = updateSystemSettingsSchema.safeParse({
+    turnstileSecretKey: "  secret-key  ",
+  });
+  assert.equal(secretKeyResult.success, true);
+  if (secretKeyResult.success) {
+    assert.equal(secretKeyResult.data.turnstileSecretKey, "secret-key");
+  }
 });
