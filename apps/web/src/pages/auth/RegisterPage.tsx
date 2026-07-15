@@ -27,14 +27,15 @@ export function RegisterPage() {
   usePageTitle("注册");
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [clientError, setClientError] = useState<string | null>(null);
   const navigate = useNavigate();
   const mutation = useMutation({
-    mutationFn: () => register({ username, displayName, password }),
+    mutationFn: () => register({ username, displayName, email, password }),
     onSuccess: (user) =>
-      navigate("/pending", { state: { username: user.username } }),
+      navigate("/verify-email", { state: { username: user.username } }),
   });
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -79,6 +80,20 @@ export function RegisterPage() {
                 required
               />
               <FieldDescription>3–32 位字母、数字或下划线</FieldDescription>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="register-email">邮箱</FieldLabel>
+              <Input
+                id="register-email"
+                type="email"
+                autoComplete="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                required
+              />
+              <FieldDescription>
+                仅支持主流邮箱（如 Gmail、QQ、163、126）
+              </FieldDescription>
             </Field>
             <Field>
               <FieldLabel htmlFor="register-password">密码</FieldLabel>

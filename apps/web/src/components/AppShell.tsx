@@ -4,6 +4,7 @@ import {
   LogOut,
   Settings,
   ShieldCheck,
+  SlidersHorizontal,
   UserRound,
 } from "lucide-react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
@@ -77,6 +78,9 @@ export function AppShell() {
                 <NavLink className={navLinkClassName} to="/admin/users">
                   用户审核
                 </NavLink>
+                <NavLink className={navLinkClassName} to="/admin/settings">
+                  系统设置
+                </NavLink>
               </>
             )}
           </nav>
@@ -128,6 +132,12 @@ export function AppShell() {
                         <NavLink to="/admin/users">
                           <ShieldCheck />
                           用户审核
+                        </NavLink>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem asChild>
+                        <NavLink to="/admin/settings">
+                          <SlidersHorizontal />
+                          系统设置
                         </NavLink>
                       </DropdownMenuItem>
                     </>

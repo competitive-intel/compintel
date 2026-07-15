@@ -81,7 +81,11 @@ test("registration creates a pending account", async () => {
   const auth = {
     async register(input: { username: string }) {
       registeredUsername = input.username;
-      return userFixture({ approvalStatus: "PENDING" });
+      return userFixture({
+        approvalStatus: "PENDING",
+        emailVerified: false,
+        email: "new.user@gmail.com",
+      });
     },
   } as unknown as AuthService;
   const app = buildApp({ ...unusedDependencies, auth });
@@ -91,6 +95,7 @@ test("registration creates a pending account", async () => {
     payload: {
       username: "New_User",
       displayName: "新用户",
+      email: "new.user@gmail.com",
       password: "password123",
     },
   });
@@ -99,6 +104,7 @@ test("registration creates a pending account", async () => {
   assert.equal(response.statusCode, 201);
   assert.equal(registeredUsername, "new_user");
   assert.equal(response.json().user.approvalStatus, "PENDING");
+  assert.equal(response.json().user.emailVerified, false);
 });
 
 test("login sets an HttpOnly session cookie", async () => {
@@ -432,6 +438,8 @@ function baseUserFixture(): CurrentUser {
     id: "user-1",
     username: "member",
     displayName: "参赛者",
+    email: "member@gmail.com",
+    emailVerified: true,
     role: "USER" as const,
     approvalStatus: "APPROVED" as const,
     createdAt: "2026-07-13T08:00:00.000Z",

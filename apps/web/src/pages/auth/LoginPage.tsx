@@ -100,6 +100,18 @@ export function LoginPage() {
         <Button asChild className="h-auto p-0" variant="link">
           <Link to="/register">提交注册申请</Link>
         </Button>
+        {mutation.isError &&
+          mutation.error instanceof ApiError &&
+          mutation.error.code === "EMAIL_UNVERIFIED" && (
+            <>
+              <span className="text-sm text-muted-foreground">·</span>
+              <Button asChild className="h-auto p-0" variant="link">
+                <Link to="/verify-email" state={{ username }}>
+                  去验证邮箱
+                </Link>
+              </Button>
+            </>
+          )}
       </CardFooter>
     </Card>
   );
@@ -107,6 +119,7 @@ export function LoginPage() {
 
 function loginErrorMessage(error: Error): string {
   if (!(error instanceof ApiError)) return "登录失败，请稍后重试";
+  if (error.code === "EMAIL_UNVERIFIED") return "请先完成邮箱验证后再登录。";
   if (error.code === "ACCOUNT_PENDING")
     return "账号正在等待管理员审核，通过后即可登录。";
   if (error.code === "ACCOUNT_REJECTED")

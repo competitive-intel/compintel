@@ -1,18 +1,27 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, type RenderResult } from "@testing-library/react";
 import type { ReactElement } from "react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import {
+  MemoryRouter,
+  Route,
+  Routes,
+  type Location,
+  type To,
+} from "react-router-dom";
 
 import { ThemeProvider } from "../lib/theme";
 
+type InitialEntry = string | Partial<Location> | To;
+
 type RenderOptions = {
-  route?: string;
+  route?: InitialEntry;
   routePath?: string;
+  initialEntries?: InitialEntry[];
 };
 
 export function renderWithProviders(
   element: ReactElement,
-  { route = "/", routePath }: RenderOptions = {},
+  { route = "/", routePath, initialEntries }: RenderOptions = {},
 ): RenderResult & { queryClient: QueryClient } {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -31,7 +40,9 @@ export function renderWithProviders(
   const result = render(
     <ThemeProvider>
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={[route]}>{content}</MemoryRouter>
+        <MemoryRouter initialEntries={initialEntries ?? [route]}>
+          {content}
+        </MemoryRouter>
       </QueryClientProvider>
     </ThemeProvider>,
   );

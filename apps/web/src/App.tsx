@@ -4,10 +4,12 @@ import { AuthLayout } from "./components/AuthLayout";
 import { AppShell } from "./components/AppShell";
 import { AdministratorRoute, ProtectedRoute } from "./components/RouteGuards";
 import { AdminGamesPage } from "./pages/admin/AdminGamesPage";
+import { AdminSystemSettingsPage } from "./pages/admin/AdminSystemSettingsPage";
 import { AdminUsersPage } from "./pages/admin/AdminUsersPage";
 import { LoginPage } from "./pages/auth/LoginPage";
 import { PendingApprovalPage } from "./pages/auth/PendingApprovalPage";
 import { RegisterPage } from "./pages/auth/RegisterPage";
+import { VerifyEmailPage } from "./pages/auth/VerifyEmailPage";
 import { GameDetailPage } from "./pages/games/GameDetailPage";
 import { GameListPage } from "./pages/games/GameListPage";
 import { SubmissionDetailPage } from "./pages/submissions/SubmissionDetailPage";
@@ -19,6 +21,7 @@ export function App() {
       <Route element={<AuthLayout />}>
         <Route path="login" element={<LoginPage />} />
         <Route path="register" element={<RegisterPage />} />
+        <Route path="verify-email" element={<VerifyEmailPage />} />
         <Route path="pending" element={<PendingApprovalPage />} />
       </Route>
       <Route element={<ProtectedRoute />}>
@@ -37,6 +40,10 @@ export function App() {
           <Route element={<AdministratorRoute />}>
             <Route path="admin/users" element={<AdminUsersPage />} />
             <Route path="admin/games" element={<AdminGamesPage />} />
+            <Route
+              path="admin/settings"
+              element={<AdminSystemSettingsPage />}
+            />
           </Route>
         </Route>
       </Route>

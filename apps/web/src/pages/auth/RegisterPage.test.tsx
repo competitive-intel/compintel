@@ -36,6 +36,7 @@ describe("RegisterPage", () => {
     expect(register).toHaveBeenCalledWith({
       displayName: "新用户",
       username: "New_User",
+      email: "new.user@gmail.com",
       password: "password123",
     });
     expect(screen.getByRole("button", { name: "正在提交…" })).toBeDisabled();
@@ -62,6 +63,7 @@ describe("RegisterPage", () => {
 async function fillRegistration(confirmation: string) {
   await userEvent.type(screen.getByLabelText("显示名称"), "新用户");
   await userEvent.type(screen.getByLabelText("用户名"), "New_User");
+  await userEvent.type(screen.getByLabelText("邮箱"), "new.user@gmail.com");
   await userEvent.type(screen.getByLabelText("密码"), "password123");
   await userEvent.type(screen.getByLabelText("确认密码"), confirmation);
   await userEvent.click(screen.getByRole("button", { name: "提交注册申请" }));

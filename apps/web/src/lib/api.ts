@@ -13,6 +13,7 @@ import {
   submissionDetailSchema,
   submissionAcceptedSchema,
   submissionRecordListSchema,
+  systemSettingsSchema,
   type AdminGame,
   type AdminBuiltinPlayer,
   type AdminUser,
@@ -24,12 +25,16 @@ import {
   type GameSummary,
   type LoginInput,
   type RegisterInput,
+  type ResendVerificationInput,
   type ReviewUserInput,
   type SubmissionAccepted,
   type SubmissionDetail,
   type SubmissionRecordList,
+  type SystemSettings,
   type UpdateGameInput,
   type UpdateBuiltinPlayerInput,
+  type UpdateSystemSettingsInput,
+  type VerifyEmailInput,
 } from "@compintel/contracts";
 import axios, { type AxiosRequestConfig } from "axios";
 import { z } from "zod";
@@ -64,6 +69,28 @@ export async function register(input: RegisterInput): Promise<CurrentUser> {
       "注册失败",
     )
   ).user;
+}
+
+export async function verifyEmail(
+  input: VerifyEmailInput,
+): Promise<CurrentUser> {
+  return (
+    await request(
+      { method: "POST", url: "/v1/auth/verify-email", data: input },
+      authResponseSchema,
+      "邮箱验证失败",
+    )
+  ).user;
+}
+
+export async function resendVerification(
+  input: ResendVerificationInput,
+): Promise<void> {
+  await request(
+    { method: "POST", url: "/v1/auth/resend-verification", data: input },
+    z.object({ ok: z.literal(true) }),
+    "发送验证码失败",
+  );
 }
 
 export async function login(input: LoginInput): Promise<CurrentUser> {
@@ -120,6 +147,26 @@ export async function reviewUser(
     },
     adminUserSchema,
     "审核失败",
+  );
+}
+
+export async function getSystemSettings(
+  signal?: AbortSignal,
+): Promise<SystemSettings> {
+  return request(
+    { method: "GET", url: "/v1/admin/system-settings", ...withSignal(signal) },
+    systemSettingsSchema,
+    "系统设置加载失败",
+  );
+}
+
+export async function updateSystemSettings(
+  input: UpdateSystemSettingsInput,
+): Promise<SystemSettings> {
+  return request(
+    { method: "PATCH", url: "/v1/admin/system-settings", data: input },
+    systemSettingsSchema,
+    "保存系统设置失败",
   );
 }
 

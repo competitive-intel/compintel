@@ -15,9 +15,13 @@ import {
   playerNameListSchema,
   registerResponseSchema,
   registerSchema,
+  resendVerificationSchema,
   reviewUserSchema,
+  systemSettingsSchema,
   updateGameSchema,
   updateBuiltinPlayerSchema,
+  updateSystemSettingsSchema,
+  verifyEmailSchema,
   type CurrentUser,
 } from "@compintel/contracts";
 import type { PrismaClient } from "@compintel/db";
@@ -30,6 +34,7 @@ import { EvaluationRecordService } from "./evaluation-records.js";
 import { HttpError } from "./errors.js";
 import { GameService } from "./games.js";
 import { SubmissionService } from "./submissions.js";
+import { SystemSettingsService } from "./system-settings.js";
 
 const gameParamsSchema = z.object({ gameSlug: z.string().min(1).max(64) });
 const submissionParamsSchema = z.object({ submissionId: z.string().min(1) });
@@ -52,6 +57,7 @@ export interface AppDependencies {
   games?: GameService;
   builtinPlayers?: BuiltinPlayerService;
   evaluationRecords?: EvaluationRecordService;
+  systemSettings?: SystemSettingsService;
   secureCookies?: boolean;
 }
 
@@ -64,6 +70,8 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
   const evaluationRecords =
     dependencies.evaluationRecords ??
     new EvaluationRecordService(dependencies.db);
+  const systemSettings =
+    dependencies.systemSettings ?? new SystemSettingsService(dependencies.db);
   const secureCookies = dependencies.secureCookies ?? false;
 
   app.get("/health", async () => ({ status: "ok" }));
@@ -84,6 +92,18 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
     return authResponseSchema.parse({ user: session.user });
   });
 
+  app.post("/v1/auth/verify-email", async (request) => {
+    const input = verifyEmailSchema.parse(request.body);
+    const user = await auth.verifyEmail(input);
+    return authResponseSchema.parse({ user });
+  });
+
+  app.post("/v1/auth/resend-verification", async (request) => {
+    const input = resendVerificationSchema.parse(request.body);
+    await auth.resendVerification(input);
+    return { ok: true };
+  });
+
   app.post("/v1/auth/logout", async (request, reply) => {
     await auth.logout(readSessionToken(request.headers.cookie));
     reply.header("set-cookie", sessionCookie("", 0, secureCookies));
@@ -93,6 +113,22 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
   app.get("/v1/auth/me", async (request) => {
     const user = await requireUser(auth, request.headers.cookie);
     return authResponseSchema.parse({ user });
+  });
+
+  app.get("/v1/admin/system-settings", async (request) => {
+    await requireAdministrator(auth, request.headers.cookie);
+    return systemSettingsSchema.parse(await systemSettings.get());
+  });
+
+  app.patch("/v1/admin/system-settings", async (request) => {
+    const administrator = await requireAdministrator(
+      auth,
+      request.headers.cookie,
+    );
+    const input = updateSystemSettingsSchema.parse(request.body);
+    return systemSettingsSchema.parse(
+      await systemSettings.update(administrator.id, input),
+    );
   });
 
   app.get("/v1/admin/users", async (request) => {

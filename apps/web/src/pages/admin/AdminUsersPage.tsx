@@ -41,7 +41,9 @@ export function AdminUsersPage() {
   });
 
   const pendingCount =
-    users.data?.filter((user) => user.approvalStatus === "PENDING").length ?? 0;
+    users.data?.filter(
+      (user) => user.approvalStatus === "PENDING" && user.emailVerified,
+    ).length ?? 0;
 
   return (
     <section className="py-10 sm:py-12">
@@ -132,6 +134,10 @@ function UserRow({
         <p className="mt-1 truncate text-xs text-muted-foreground">
           @{user.username}
         </p>
+        <p className="mt-1 truncate text-xs text-muted-foreground">
+          {user.email}
+          {!user.emailVerified ? " · 未验证" : ""}
+        </p>
       </div>
       <div>
         <Badge variant={user.role === "ADMIN" ? "default" : "secondary"}>
@@ -139,14 +145,21 @@ function UserRow({
         </Badge>
       </div>
       <div>
-        <ApprovalBadge status={user.approvalStatus} />
+        <ApprovalBadge
+          status={user.approvalStatus}
+          emailVerified={user.emailVerified}
+        />
       </div>
       <div className="flex flex-wrap gap-2 lg:justify-end">
         {user.role === "USER" && (
           <>
             <Button
               size="sm"
-              disabled={busy || user.approvalStatus === "REJECTED"}
+              disabled={
+                busy ||
+                !user.emailVerified ||
+                user.approvalStatus === "REJECTED"
+              }
               variant="outline"
               onClick={() => onReview("REJECT")}
             >
@@ -155,7 +168,11 @@ function UserRow({
             </Button>
             <Button
               size="sm"
-              disabled={busy || user.approvalStatus === "APPROVED"}
+              disabled={
+                busy ||
+                !user.emailVerified ||
+                user.approvalStatus === "APPROVED"
+              }
               onClick={() => onReview("APPROVE")}
             >
               {busy ? (
@@ -175,7 +192,14 @@ function UserRow({
   );
 }
 
-function ApprovalBadge({ status }: { status: AdminUser["approvalStatus"] }) {
+function ApprovalBadge({
+  status,
+  emailVerified,
+}: {
+  status: AdminUser["approvalStatus"];
+  emailVerified: boolean;
+}) {
+  if (!emailVerified) return <Badge variant="secondary">待验证邮箱</Badge>;
   if (status === "APPROVED") return <Badge>已通过</Badge>;
   if (status === "REJECTED") {
     return <Badge variant="destructive">已拒绝</Badge>;
