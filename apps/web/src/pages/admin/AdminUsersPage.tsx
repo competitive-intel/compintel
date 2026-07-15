@@ -6,13 +6,21 @@ import { PageTitle } from "../../components/PageTitle";
 import { Alert, AlertDescription, AlertTitle } from "../../components/ui/alert";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
-import { Card } from "../../components/ui/card";
+import { Card, CardContent } from "../../components/ui/card";
 import {
   Empty,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
 } from "../../components/ui/empty";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "../../components/ui/table";
 import { ApiError, banUser, getAdminUsers, unbanUser } from "../../lib/api";
 import { usePageTitle } from "../../lib/use-page-title";
 
@@ -54,7 +62,7 @@ export function AdminUsersPage() {
 
   return (
     <section className="py-10 sm:py-12">
-      <header className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <header className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <PageTitle>用户管理</PageTitle>
         <Badge variant={bannedCount > 0 ? "destructive" : "secondary"}>
           {bannedCount} 个已封禁
@@ -89,42 +97,50 @@ export function AdminUsersPage() {
       )}
       {users.data !== undefined && users.data.length > 0 && (
         <Card className="overflow-hidden">
-          <div className="hidden grid-cols-[minmax(180px,1fr)_100px_100px_120px_140px] bg-muted/50 px-5 py-3 text-xs font-medium text-muted-foreground lg:grid">
-            <span>用户</span>
-            <span>用户名</span>
-            <span>角色</span>
-            <span>总提交次数</span>
-            <span className="text-right">操作</span>
-          </div>
-          <div className="divide-y">
-            {users.data.map((user) => (
-              <UserRow
-                key={user.id}
-                user={user}
-                busy={actionPending && actionUserId === user.id}
-                onBan={() => {
-                  unban.reset();
-                  ban.mutate(user.id);
-                }}
-                onUnban={() => {
-                  ban.reset();
-                  unban.mutate(user.id);
-                }}
-              />
-            ))}
-          </div>
-          {actionError && (
-            <div className="p-4">
-              <Alert variant="destructive">
-                <AlertTitle>操作失败</AlertTitle>
-                <AlertDescription>
-                  {actionError instanceof ApiError
-                    ? actionError.message
-                    : "请稍后重试"}
-                </AlertDescription>
-              </Alert>
-            </div>
-          )}
+          <CardContent className="p-0">
+            <Table className="min-w-190">
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="h-9 px-4">用户</TableHead>
+                  <TableHead className="h-9 w-[8rem]">用户名</TableHead>
+                  <TableHead className="h-9 w-[6.5rem]">角色</TableHead>
+                  <TableHead className="h-9 w-[7rem]">总提交次数</TableHead>
+                  <TableHead className="h-9 w-[7.5rem] px-4 text-right">
+                    操作
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {users.data.map((user) => (
+                  <UserRow
+                    key={user.id}
+                    user={user}
+                    busy={actionPending && actionUserId === user.id}
+                    onBan={() => {
+                      unban.reset();
+                      ban.mutate(user.id);
+                    }}
+                    onUnban={() => {
+                      ban.reset();
+                      unban.mutate(user.id);
+                    }}
+                  />
+                ))}
+              </TableBody>
+            </Table>
+            {actionError && (
+              <div className="border-t p-3">
+                <Alert variant="destructive">
+                  <AlertTitle>操作失败</AlertTitle>
+                  <AlertDescription>
+                    {actionError instanceof ApiError
+                      ? actionError.message
+                      : "请稍后重试"}
+                  </AlertDescription>
+                </Alert>
+              </div>
+            )}
+          </CardContent>
         </Card>
       )}
     </section>
@@ -143,22 +159,26 @@ function UserRow({
   onUnban: () => void;
 }) {
   return (
-    <article className="grid min-h-24 grid-cols-1 items-center gap-3 px-5 py-4 lg:grid-cols-[minmax(180px,1fr)_100px_100px_120px_140px] lg:gap-4">
-      <div className="min-w-0">
-        <p className="truncate text-sm font-medium">{user.displayName}</p>
-        <p className="mt-1 truncate text-xs text-muted-foreground">
-          {user.email}
-          {!user.emailVerified ? " · 未验证" : ""}
-        </p>
-      </div>
-      <div className="truncate text-sm text-muted-foreground">
+    <TableRow>
+      <TableCell className="px-4 py-2.5">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium">{user.displayName}</p>
+          <p className="truncate text-xs text-muted-foreground">
+            {user.email}
+            {!user.emailVerified ? " · 未验证" : ""}
+          </p>
+        </div>
+      </TableCell>
+      <TableCell className="py-2.5 text-muted-foreground">
         @{user.username}
-      </div>
-      <div>
+      </TableCell>
+      <TableCell className="py-2.5">
         <RoleBadge role={user.role} />
-      </div>
-      <div className="text-sm tabular-nums">{user.submissionCount}</div>
-      <div className="flex flex-wrap gap-2 lg:justify-end">
+      </TableCell>
+      <TableCell className="py-2.5 tabular-nums">
+        {user.submissionCount}
+      </TableCell>
+      <TableCell className="px-4 py-2.5 text-right">
         {user.role === "USER" && (
           <Button size="sm" disabled={busy} variant="outline" onClick={onBan}>
             {busy ? (
@@ -177,8 +197,8 @@ function UserRow({
             {busy ? "处理中…" : "解封"}
           </Button>
         )}
-      </div>
-    </article>
+      </TableCell>
+    </TableRow>
   );
 }
 

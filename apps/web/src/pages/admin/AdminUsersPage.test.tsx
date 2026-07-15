@@ -79,7 +79,7 @@ describe("AdminUsersPage", () => {
     });
     renderPage();
 
-    const row = (await screen.findByText("普通用户")).closest("article");
+    const row = (await screen.findByText("普通用户")).closest("tr");
     expect(row).not.toBeNull();
     await userEvent.click(within(row!).getByRole("button", { name: "封禁" }));
 
@@ -101,7 +101,7 @@ describe("AdminUsersPage", () => {
     });
     renderPage();
 
-    const row = (await screen.findByText("封禁用户")).closest("article");
+    const row = (await screen.findByText("封禁用户")).closest("tr");
     expect(row).not.toBeNull();
     await userEvent.click(within(row!).getByRole("button", { name: "解封" }));
 
@@ -149,7 +149,7 @@ describe("AdminUsersPage", () => {
       "不能封禁管理员账号",
     );
 
-    const bannedRow = screen.getByText("封禁用户").closest("article");
+    const bannedRow = screen.getByText("封禁用户").closest("tr");
     expect(bannedRow).not.toBeNull();
     await userEvent.click(
       within(bannedRow!).getByRole("button", { name: "解封" }),
