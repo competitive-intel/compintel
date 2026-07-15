@@ -14,7 +14,7 @@
 
 重发验证码时先调用 SES；仅在发信成功后才 upsert 新的 `codeHash` / `sentAt`（新码有效期同样为 5 分钟），避免发信失败导致旧码失效并进入冷却。
 
-若注册时用户名或规范化邮箱与已有账号冲突，且对方 `emailVerifiedAt` 为空且 `createdAt` 早于 24 小时，则删除该未验证账号（级联清理会话与验证码）后允许新注册；24 小时内的冲突仍返回 `USERNAME_CONFLICT` / `EMAIL_CONFLICT`。
+若注册时用户名或规范化邮箱与已有账号冲突，且对方 `emailVerifiedAt` 为空、`role !== BANNED` 且 `createdAt` 早于 24 小时，则删除该未验证账号（级联清理会话与验证码）后允许新注册；已封禁账号即使未验证邮箱也不会被回收。24 小时内的冲突仍返回 `USERNAME_CONFLICT` / `EMAIL_CONFLICT`。
 
 登录与受保护会话要求 `emailVerifiedAt` 非空且 `role !== BANNED`。管理员可通过 ban/unban 接口切换普通用户的封禁状态；封禁会撤销该用户全部会话。唯一管理员由 seed 创建，不提供升管接口。
 

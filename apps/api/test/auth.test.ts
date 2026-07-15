@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 
-import type { PrismaClient } from "@compintel/db";
+import { Prisma, type PrismaClient } from "@compintel/db";
 
 import { AuthService, hashPassword } from "../src/auth.js";
 import { MemoryEmailSendLimiter } from "../src/email-send-limiter.js";
@@ -523,13 +523,15 @@ test("register keeps the reservation after SES success and rolls back on failure
 
 test("register reclaims stale unverified username or email conflicts", async () => {
   let deletedIds: string[] = [];
+  let reclaimWhere: unknown;
   let created = false;
   const ses: SesClient = {
     async sendVerificationEmail() {},
   };
   const db = {
     user: {
-      async findMany() {
+      async findMany({ where }: { where: unknown }) {
+        reclaimWhere = where;
         return [{ id: "stale-1" }];
       },
       async deleteMany({ where }: { where: { id: { in: string[] } } }) {
@@ -583,8 +585,78 @@ test("register reclaims stale unverified username or email conflicts", async () 
     mailContext,
   );
 
+  assert.deepEqual(reclaimWhere, {
+    emailVerifiedAt: null,
+    role: { not: "BANNED" },
+    createdAt: { lt: new Date("2026-07-14T08:00:00.000Z") },
+    OR: [{ username: "member" }, { emailNormalized: "member@gmail.com" }],
+  });
   assert.deepEqual(deletedIds, ["stale-1"]);
   assert.equal(created, true);
+});
+
+test("register does not reclaim banned unverified conflicts", async () => {
+  let deleteManyCalled = false;
+  const ses: SesClient = {
+    async sendVerificationEmail() {},
+  };
+  const db = {
+    user: {
+      async findMany({
+        where,
+      }: {
+        where: { role?: { not: string } };
+      }) {
+        assert.deepEqual(where.role, { not: "BANNED" });
+        // Banned unverified rows are excluded by the query filter.
+        return [];
+      },
+      async deleteMany() {
+        deleteManyCalled = true;
+        return { count: 0 };
+      },
+      async create() {
+        throw new Prisma.PrismaClientKnownRequestError("Unique constraint", {
+          code: "P2002",
+          clientVersion: "test",
+          meta: { target: ["emailNormalized"] },
+        });
+      },
+    },
+    emailVerification: {
+      async create() {
+        return {};
+      },
+    },
+    systemSettings: {
+      async upsert() {
+        return configuredSettings();
+      },
+    },
+    async $transaction(callback: (tx: unknown) => Promise<unknown>) {
+      return callback(db);
+    },
+  } as unknown as PrismaClient;
+
+  await assert.rejects(
+    new AuthService(db, {
+      ses,
+      settings: mailSettings(db),
+      now: () => new Date("2026-07-15T08:00:00.000Z"),
+    }).register(
+      {
+        username: "banned-user",
+        displayName: "已封禁",
+        email: "banned@gmail.com",
+        password: "password123",
+      },
+      mailContext,
+    ),
+    (error: unknown) =>
+      error instanceof HttpError && error.code === "EMAIL_CONFLICT",
+  );
+
+  assert.equal(deleteManyCalled, false);
 });
 
 test("register fails when SES is not configured", async () => {

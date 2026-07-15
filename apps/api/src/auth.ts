@@ -525,8 +525,10 @@ export class AuthService {
   }
 
   /**
-   * If an unverified account has held the username or email for longer than
-   * UNVERIFIED_ACCOUNT_TTL_MS, delete it (cascades sessions + verification).
+   * If an unverified (non-banned) account has held the username or email for
+   * longer than UNVERIFIED_ACCOUNT_TTL_MS, delete it (cascades sessions +
+   * verification). Banned accounts are kept so a ban cannot be bypassed by
+   * waiting for reclaim and re-registering.
    */
   private async reclaimStaleUnverifiedConflicts(
     username: string,
@@ -536,6 +538,7 @@ export class AuthService {
     const stale = await this.db.user.findMany({
       where: {
         emailVerifiedAt: null,
+        role: { not: "BANNED" },
         createdAt: { lt: cutoff },
         OR: [{ username }, { emailNormalized }],
       },
