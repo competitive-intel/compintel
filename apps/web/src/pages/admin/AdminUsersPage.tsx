@@ -102,8 +102,14 @@ export function AdminUsersPage() {
                 key={user.id}
                 user={user}
                 busy={actionPending && actionUserId === user.id}
-                onBan={() => ban.mutate(user.id)}
-                onUnban={() => unban.mutate(user.id)}
+                onBan={() => {
+                  unban.reset();
+                  ban.mutate(user.id);
+                }}
+                onUnban={() => {
+                  ban.reset();
+                  unban.mutate(user.id);
+                }}
               />
             ))}
           </div>

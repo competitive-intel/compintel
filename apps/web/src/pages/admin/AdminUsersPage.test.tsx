@@ -123,6 +123,41 @@ describe("AdminUsersPage", () => {
       "不能封禁管理员账号",
     );
   });
+
+  it("clears a prior ban error after a successful unban", async () => {
+    const member = adminUserFixture({
+      id: "member",
+      displayName: "普通用户",
+    });
+    const banned = adminUserFixture({
+      id: "banned",
+      role: "BANNED",
+      displayName: "封禁用户",
+    });
+    vi.mocked(getAdminUsers).mockResolvedValue([member, banned]);
+    vi.mocked(banUser).mockRejectedValue(
+      new ApiError("不能封禁管理员账号", 400, "CANNOT_BAN_ADMIN"),
+    );
+    vi.mocked(unbanUser).mockResolvedValue({
+      ...banned,
+      role: "USER",
+    });
+    renderPage();
+
+    await userEvent.click(await screen.findByRole("button", { name: "封禁" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "不能封禁管理员账号",
+    );
+
+    const bannedRow = screen.getByText("封禁用户").closest("article");
+    expect(bannedRow).not.toBeNull();
+    await userEvent.click(
+      within(bannedRow!).getByRole("button", { name: "解封" }),
+    );
+
+    expect(await within(bannedRow!).findByText("用户")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
 });
 
 function renderPage() {
