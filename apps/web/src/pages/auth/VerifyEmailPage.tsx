@@ -39,7 +39,13 @@ export function VerifyEmailPage() {
   const [resendMessage, setResendMessage] = useState<string | null>(null);
   const [turnstileSiteKey, setTurnstileSiteKey] = useState<string | null>(null);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [turnstileResetKey, setTurnstileResetKey] = useState(0);
   const [requiresTurnstile, setRequiresTurnstile] = useState(false);
+
+  function clearAndResetTurnstile() {
+    setTurnstileToken(null);
+    setTurnstileResetKey((key) => key + 1);
+  }
 
   const verifyMutation = useMutation({
     mutationFn: () => verifyEmail({ username: username.trim(), code }),
@@ -62,9 +68,11 @@ export function VerifyEmailPage() {
     },
     onSuccess: () => {
       setResendMessage("验证码已重新发送，请查收邮箱。");
-      setTurnstileToken(null);
+      clearAndResetTurnstile();
     },
     onError: async (error) => {
+      // Turnstile tokens are single-use; always clear and reset after a failed submit.
+      clearAndResetTurnstile();
       if (error instanceof ApiError && error.code === "TURNSTILE_REQUIRED") {
         setRequiresTurnstile(true);
         try {
@@ -123,6 +131,7 @@ export function VerifyEmailPage() {
                 <TurnstileWidget
                   siteKey={turnstileSiteKey}
                   onToken={setTurnstileToken}
+                  resetKey={turnstileResetKey}
                 />
                 <FieldDescription>
                   重新发送验证码前需完成人机验证

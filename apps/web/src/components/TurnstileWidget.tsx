@@ -59,15 +59,19 @@ function loadTurnstileScript(): Promise<void> {
 export function TurnstileWidget({
   siteKey,
   onToken,
+  resetKey = 0,
 }: {
   siteKey: string;
   onToken: (token: string | null) => void;
+  /** Increment to call Turnstile `reset()` and clear the current token. */
+  resetKey?: number;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const widgetIdRef = useRef<string | null>(null);
   const onTokenRef = useRef(onToken);
   onTokenRef.current = onToken;
   const reactId = useId();
+  const skipResetOnMountRef = useRef(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -98,6 +102,18 @@ export function TurnstileWidget({
       onTokenRef.current(null);
     };
   }, [siteKey, reactId]);
+
+  useEffect(() => {
+    if (skipResetOnMountRef.current) {
+      skipResetOnMountRef.current = false;
+      return;
+    }
+    if (widgetIdRef.current === null || window.turnstile === undefined) {
+      return;
+    }
+    window.turnstile.reset(widgetIdRef.current);
+    onTokenRef.current(null);
+  }, [resetKey]);
 
   return <div ref={containerRef} className="flex justify-center" />;
 }

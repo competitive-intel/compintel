@@ -34,6 +34,7 @@ export function RegisterPage() {
   const [clientError, setClientError] = useState<string | null>(null);
   const [turnstileSiteKey, setTurnstileSiteKey] = useState<string | null>(null);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [turnstileResetKey, setTurnstileResetKey] = useState(0);
   const [requiresTurnstile, setRequiresTurnstile] = useState(false);
   const navigate = useNavigate();
   const mutation = useMutation({
@@ -50,6 +51,9 @@ export function RegisterPage() {
     onSuccess: (user) =>
       navigate("/verify-email", { state: { username: user.username } }),
     onError: async (error) => {
+      // Turnstile tokens are single-use; always clear and reset after a failed submit.
+      setTurnstileToken(null);
+      setTurnstileResetKey((key) => key + 1);
       if (error instanceof ApiError && error.code === "TURNSTILE_REQUIRED") {
         setRequiresTurnstile(true);
         try {
@@ -158,6 +162,7 @@ export function RegisterPage() {
                 <TurnstileWidget
                   siteKey={turnstileSiteKey}
                   onToken={setTurnstileToken}
+                  resetKey={turnstileResetKey}
                 />
               </Field>
             )}

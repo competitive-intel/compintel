@@ -1,5 +1,6 @@
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useEffect, useRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -23,14 +24,29 @@ vi.mock("../../lib/api", async (importOriginal) => ({
 vi.mock("../../components/TurnstileWidget", () => ({
   TurnstileWidget: ({
     onToken,
+    resetKey = 0,
   }: {
     siteKey: string;
     onToken: (token: string | null) => void;
-  }) => (
-    <button type="button" onClick={() => onToken("test-turnstile-token")}>
-      mock-turnstile
-    </button>
-  ),
+    resetKey?: number;
+  }) => {
+    const skipResetOnMountRef = useRef(true);
+    useEffect(() => {
+      if (skipResetOnMountRef.current) {
+        skipResetOnMountRef.current = false;
+        return;
+      }
+      onToken(null);
+    }, [resetKey, onToken]);
+    return (
+      <button
+        type="button"
+        onClick={() => onToken(`test-turnstile-token-${resetKey}`)}
+      >
+        mock-turnstile
+      </button>
+    );
+  },
 }));
 vi.mock("react-router-dom", async (importOriginal) => ({
   ...(await importOriginal<typeof import("react-router-dom")>()),
@@ -140,6 +156,48 @@ describe("VerifyEmailPage", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "mock-turnstile" }));
 
+    expect(
+      screen.getByRole("button", { name: "重新发送验证码" }),
+    ).toBeEnabled();
+  });
+
+  it("resets Turnstile after a failed resend so a fresh token is required", async () => {
+    vi.mocked(getCaptchaConfig).mockResolvedValue({
+      turnstileSiteKey: "test-site-key",
+    });
+    vi.mocked(resendVerification)
+      .mockRejectedValueOnce(
+        new ApiError("需要人机验证", 429, "TURNSTILE_REQUIRED"),
+      )
+      .mockRejectedValueOnce(
+        new ApiError("用户不存在", 404, "USER_NOT_FOUND"),
+      );
+    renderWithProviders(<VerifyEmailPage />, {
+      initialEntries: [
+        { pathname: "/verify-email", state: { username: "member" } },
+      ],
+    });
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "重新发送验证码" }),
+    );
+    expect(await screen.findByText("需要人机验证")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "mock-turnstile" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "重新发送验证码" }),
+    );
+
+    expect(await screen.findByText("用户不存在")).toBeInTheDocument();
+    expect(resendVerification).toHaveBeenLastCalledWith({
+      username: "member",
+      turnstileToken: "test-turnstile-token-1",
+    });
+    expect(
+      screen.getByRole("button", { name: "重新发送验证码" }),
+    ).toBeDisabled();
+
+    await userEvent.click(screen.getByRole("button", { name: "mock-turnstile" }));
     expect(
       screen.getByRole("button", { name: "重新发送验证码" }),
     ).toBeEnabled();
