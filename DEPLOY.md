@@ -6,19 +6,24 @@
 
 ## 1. 部署拓扑
 
-推荐将 Web、API、Worker 和基础设施部署在同一台 Linux 主机上：
+推荐将 Web、API、Worker 和基础设施部署在同一台 Linux 主机上。默认公网入口为 **Cloudflare（边缘）→ Caddy（源站）**：
 
 ```text
-浏览器 -- HTTPS --> Nginx/Caddy
+浏览器 -- HTTPS --> Cloudflare
+                       |
+                       v
+                     Caddy（本机，TLS 终结或由 CF Flexible/Full 配合）
                        |-- /       --> apps/web/dist（静态文件）
-                       `-- /api/*  --> API :3000
+                       `-- /api/*  --> API 127.0.0.1:3000（剥离 /api 前缀）
 
 API :3000 ----> PostgreSQL :5432
              `-> Redis :6379 -> Worker
 Worker ------> go-judge :5050
 ```
 
-只有反向代理需要对公网开放。PostgreSQL、Redis 和 go-judge 只应监听本机或私有网络；go-judge 绝不能直接暴露给互联网。若使用云数据库或托管 Redis，只需将 `DATABASE_URL`、`REDIS_URL` 指向对应服务。
+只有 Caddy（或经 Cloudflare Tunnel 暴露的等价入口）应对公网/Cloudflare 可达。PostgreSQL、Redis 和 go-judge 只应监听本机或私有网络；go-judge 绝不能直接暴露给互联网。若使用云数据库或托管 Redis，只需将 `DATABASE_URL`、`REDIS_URL` 指向对应服务。
+
+源站应限制为仅接受 Cloudflare 回源（防火墙允许 Cloudflare IP、Authenticated Origin Pulls，或 Cloudflare Tunnel），避免客户端绕过边缘直接伪造 `CF-Connecting-IP`。
 
 ## 2. 主机要求
 
@@ -27,7 +32,8 @@ Worker ------> go-judge :5050
 - pnpm 11，仓库当前锁定的包管理器版本为 `11.12.0`。
 - Docker Engine 和 Docker Compose v2。
 - Git，并能拉取 `services/go-judge` Submodule。
-- 一个已经配置 HTTPS 的域名。生产 Cookie 在 `NODE_ENV=production` 时带 `Secure`，必须通过 HTTPS 访问。
+- 一个已经配置 HTTPS 的域名（推荐 Cloudflare 代理 + 本机 Caddy）。生产 Cookie 在 `NODE_ENV=production` 时带 `Secure`，必须通过 HTTPS 访问。
+- 源站反向代理：默认使用 Caddy；也可用 Nginx（见下文附录）。
 
 go-judge 镜像会在容器中安装 `g++`，主机不需要单独安装 C++ 编译器。不要在 macOS 或 Windows 上把本指南当作生产部署方案；go-judge 的资源隔离以 Linux 为目标。
 
@@ -66,6 +72,9 @@ API_HOST=127.0.0.1
 API_PORT=3000
 NODE_ENV=production
 
+TENCENT_SES_SECRET_ID=<腾讯云 SES SecretId>
+TENCENT_SES_SECRET_KEY=<腾讯云 SES SecretKey>
+
 JUDGE_URL=http://127.0.0.1:5050
 JUDGE_AUTH_TOKEN=<按 go-judge 配置填写；无认证时留空>
 
@@ -77,7 +86,7 @@ ADMIN_PASSWORD=<随机且足够长的管理员密码>
 VITE_API_BASE_URL=/api
 ```
 
-`VITE_*` 变量会被写入浏览器静态产物，只能放公开地址，不能放数据库密码、Token 或内部服务地址。`ADMIN_PASSWORD` 只在 seed 时使用，生产环境不要使用 `.env.example` 中的示例值。
+`VITE_*` 变量会被写入浏览器静态产物，只能放公开地址，不能放数据库密码、Token 或内部服务地址。`ADMIN_PASSWORD` 只在 seed 时使用，生产环境不要使用 `.env.example` 中的示例值。`TENCENT_SES_SECRET_*` 仅供 API 进程读取，不要写入前端或数据库；发件地址与模板 ID 仍在管理后台系统设置中配置。
 
 ## 5. 启动 PostgreSQL、Redis 和 go-judge
 
@@ -183,9 +192,45 @@ Web 构建为静态文件：
 VITE_API_BASE_URL=/api pnpm --filter @compintel/web build
 ```
 
-将 `apps/web/dist` 交给 Nginx、Caddy 或同类静态文件服务器。不要在生产环境使用 Vite 开发服务器；`pnpm --filter @compintel/web preview` 只适合临时验收。
+将 `apps/web/dist` 交给 Caddy（默认）或同类静态文件服务器。不要在生产环境使用 Vite 开发服务器；`pnpm --filter @compintel/web preview` 只适合临时验收。
 
-反向代理必须同时满足两点：将 `/api/v1/*` 转发到 API 的 `/v1/*`，并对 SPA 路由回退到 `apps/web/dist/index.html`。Nginx 的核心配置形态如下，具体 TLS 和安全头按站点规范补充：
+反向代理必须同时满足两点：将 `/api/v1/*` 转发到 API 的 `/v1/*`（剥离 `/api` 前缀），并对 SPA 路由回退到 `apps/web/dist/index.html`。
+
+### Cloudflare + Caddy（推荐）
+
+域名在 Cloudflare 开启代理（橙云）。源站用 Caddy 提供静态站与 `/api` 反代。`handle_path /api/*` 会去掉 `/api` 前缀，与前端 `VITE_API_BASE_URL=/api` 一致：`/api/health` → `http://127.0.0.1:3000/health`，`/api/v1/...` → `/v1/...`。
+
+API 解析客户端 IP 时优先读取 Cloudflare 写入的 `CF-Connecting-IP`（见 `apps/api/src/client-ip.ts`）。Caddy 应透传该头，**不要**用客户端可控字段覆盖或伪造它；也不要在反代里删除 `CF-Connecting-IP`。
+
+核心 `Caddyfile` 形态如下（将域名与 `root` 换成实际路径；TLS 可用 Caddy 自动证书，或在 Cloudflare 全橙云时按站点策略调整）：
+
+```caddyfile
+example.com {
+	root * /srv/compintel/apps/web/dist
+	encode gzip
+
+	# /api/* → API，剥离 /api 前缀（等价于 Nginx proxy_pass .../;）
+	handle_path /api/* {
+		reverse_proxy 127.0.0.1:3000 {
+			header_up Host {host}
+			header_up X-Forwarded-Proto {http.request.scheme}
+			# 透传 CF-Connecting-IP；勿 header_up 覆盖该头
+		}
+	}
+
+	# SPA：找不到静态文件时回退 index.html
+	handle {
+		try_files {path} /index.html
+		file_server
+	}
+}
+```
+
+可选：`redir /api /api/` 以对齐带尾斜杠的习惯。若 Caddy 同时终结 TLS 且 Cloudflare 为 Full (strict)，确保证书受信任。
+
+### 附录：也可用 Nginx
+
+若不用 Caddy，也可用 Nginx 承担同源反代与静态站（能力等价）。在 Cloudflare 之后部署时同样应透传 `CF-Connecting-IP`，并限制源站仅接受 Cloudflare 回源：
 
 ```nginx
 root /srv/compintel/apps/web/dist;
@@ -195,6 +240,7 @@ location /api/ {
     proxy_pass http://127.0.0.1:3000/;
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-Proto $scheme;
+    # remote_addr 多为 Cloudflare 边缘 IP；真实客户端见 CF-Connecting-IP
     proxy_set_header X-Real-IP $remote_addr;
 }
 
@@ -241,7 +287,7 @@ VITE_API_BASE_URL=/api pnpm --filter @compintel/web build
 sudo systemctl restart compintel-api compintel-worker
 ```
 
-静态文件服务器重新加载或指向新的 `apps/web/dist` 后，再执行验收检查。go-judge 镜像使用固定 commit；只有在明确升级 Submodule、镜像标签和验证结果后才更新它。
+重新加载 Caddy（或指向新的 `apps/web/dist`）后，再执行验收检查。go-judge 镜像使用固定 commit；只有在明确升级 Submodule、镜像标签和验证结果后才更新它。
 
 ## 10. 备份和安全边界
 
@@ -249,6 +295,7 @@ sudo systemctl restart compintel-api compintel-worker
 - Redis 只承载 BullMQ 队列和临时状态，不应当作为源码或评测结果的备份来源。
 - 通过防火墙或私有网络限制 PostgreSQL、Redis、go-judge，仅允许 API/Worker 访问。
 - 强制 HTTPS，保留 `NODE_ENV=production`，不要关闭 Cookie 的 `Secure` 属性。
+- 源站仅接受 Cloudflare 回源，避免客户端直连伪造 `CF-Connecting-IP`（发信限流依赖该头）。
 - 不要把 `.env`、数据库备份、用户源码或 go-judge 管理接口放入 Web 静态目录。
 - go-judge 以特权容器运行，是不可信程序的隔离边界；应部署在专用主机或至少专用 Docker 节点，并限制主机上其他服务的权限。
 
@@ -257,11 +304,12 @@ sudo systemctl restart compintel-api compintel-worker
 | 现象                    | 优先检查                                                                                   |
 | ----------------------- | ------------------------------------------------------------------------------------------ |
 | API 启动即退出          | `.env` 是否已加载；`DATABASE_URL`、`REDIS_URL` 是否为合法 URL。                            |
-| 登录后 Cookie 不生效    | 是否通过 HTTPS 访问；API 是否设置 `NODE_ENV=production`；反向代理是否转发 Host 和协议头。  |
+| 登录后 Cookie 不生效    | 是否通过 HTTPS 访问；API 是否设置 `NODE_ENV=production`；Caddy 是否转发 Host 和协议头。    |
 | 提交一直停留在队列中    | `compintel-worker` 是否运行；Worker 与 API 是否使用同一个 `REDIS_URL`；查看 systemd 日志。 |
 | 评测失败且提示 go-judge | 检查 `JUDGE_URL`、`/version`、Docker `privileged`、cgroup v2 和 go-judge 容器日志。        |
 | 无法提交 Player         | 游戏是否已发布，以及是否存在启用的平台 C++ Player。                                        |
-| 页面刷新后返回 404      | 静态服务器是否配置 `try_files ... /index.html`。                                           |
+| 页面刷新后返回 404      | Caddy 是否配置 `try_files {path} /index.html`（或 Nginx 等价配置）。                       |
+| 发信限流 IP 不准        | 流量是否经 Cloudflare；源站是否透传 `CF-Connecting-IP`；是否被直连绕过边缘。               |
 
 查看应用日志：
 

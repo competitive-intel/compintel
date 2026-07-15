@@ -61,22 +61,50 @@ enum ApprovalStatus {
 }
 
 model User {
-  id             String         @id @default(cuid())
-  username       String         @unique
-  displayName    String
-  passwordHash   String
-  role           UserRole       @default(USER)
-  approvalStatus ApprovalStatus @default(PENDING)
-  reviewedAt     DateTime?
-  reviewedById   String?
-  reviewedBy     User?          @relation("UserReviews", fields: [reviewedById], references: [id], onDelete: SetNull)
-  reviewedUsers  User[]         @relation("UserReviews")
-  sessions       Session[]
-  players        Player[]
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  id                String             @id @default(cuid())
+  username          String             @unique
+  displayName       String
+  email             String
+  emailNormalized   String             @unique
+  emailVerifiedAt   DateTime?
+  passwordHash      String
+  role              UserRole           @default(USER)
+  approvalStatus    ApprovalStatus     @default(PENDING)
+  reviewedAt        DateTime?
+  reviewedById      String?
+  reviewedBy        User?              @relation("UserReviews", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedUsers     User[]             @relation("UserReviews")
+  sessions          Session[]
+  players           Player[]
+  emailVerification EmailVerification?
+  updatedSettings   SystemSettings[]   @relation("SettingsUpdatedBy")
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
 
   @@index([approvalStatus, createdAt])
+}
+
+model EmailVerification {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash     String
+  expiresAt    DateTime
+  sentAt       DateTime
+  attemptCount Int      @default(0)
+  createdAt    DateTime @default(now())
+}
+
+model SystemSettings {
+  id                    String   @id @default("default")
+  tencentSesFromAddress String   @default("")
+  tencentSesTemplateId  Int      @default(121332)
+  allowedEmailProviders String[] @default(["gmail.com", "qq.com", "163.com", "126.com"])
+  turnstileSiteKey      String   @default("")
+  turnstileSecretKey    String   @default("")
+  updatedAt             DateTime @updatedAt
+  updatedById           String?
+  updatedBy             User?    @relation("SettingsUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
 }
 
 model Session {

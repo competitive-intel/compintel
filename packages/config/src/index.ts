@@ -8,6 +8,10 @@ const baseServerSchema = z.object({
 const apiSchema = baseServerSchema.extend({
   API_HOST: z.string().default("127.0.0.1"),
   API_PORT: z.coerce.number().int().min(1).max(65535).default(3000),
+  /** Tencent Cloud SES SecretId; leave empty to disable outbound mail. */
+  TENCENT_SES_SECRET_ID: z.string().default(""),
+  /** Tencent Cloud SES SecretKey; leave empty to disable outbound mail. */
+  TENCENT_SES_SECRET_KEY: z.string().default(""),
 });
 
 const workerSchema = baseServerSchema.extend({

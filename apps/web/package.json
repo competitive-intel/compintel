@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@base-ui/react": "^1.6.0",
     "@compintel/contracts": "workspace:*",
     "@mdit/plugin-katex": "^1.0.1",
     "@radix-ui/react-collapsible": "^1.1.16",

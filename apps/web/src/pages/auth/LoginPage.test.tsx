@@ -15,6 +15,7 @@ afterEach(() => vi.clearAllMocks());
 
 describe("LoginPage", () => {
   it.each([
+    ["EMAIL_UNVERIFIED", "请先完成邮箱验证后再登录"],
     ["ACCOUNT_PENDING", "账号正在等待管理员审核"],
     ["ACCOUNT_REJECTED", "账号申请未通过审核"],
   ])("renders the %s account state", async (code, message) => {

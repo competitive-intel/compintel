@@ -5,25 +5,44 @@ import {
 } from "@compintel/contracts";
 import { createDbClient } from "@compintel/db";
 import { Queue, type ConnectionOptions } from "bullmq";
+import { Redis } from "ioredis";
 
 import { buildApp } from "./app.js";
+import { AuthService } from "./auth.js";
+import { RedisEmailSendLimiter } from "./email-send-limiter.js";
 import { SubmissionService } from "./submissions.js";
+import { SystemSettingsService } from "./system-settings.js";
+import { createTurnstileClient } from "./turnstile.js";
 
 const config = loadApiConfig();
 const db = createDbClient(config.DATABASE_URL);
+const redisOptions = redisConnection(config.REDIS_URL);
 const queue = new Queue<PlayerEvaluationJob>(PLAYER_EVALUATION_QUEUE, {
-  connection: redisConnection(config.REDIS_URL),
+  connection: redisOptions,
 });
+const redis = new Redis(config.REDIS_URL, { maxRetriesPerRequest: null });
 const submissions = new SubmissionService(db, queue);
+const systemSettings = new SystemSettingsService(db, {
+  tencentSesSecretId: config.TENCENT_SES_SECRET_ID,
+  tencentSesSecretKey: config.TENCENT_SES_SECRET_KEY,
+});
+const auth = new AuthService(db, {
+  settings: systemSettings,
+  emailSendLimiter: new RedisEmailSendLimiter(redis),
+  turnstile: createTurnstileClient(),
+});
 const app = buildApp({
   db,
   submissions,
+  auth,
+  systemSettings,
   secureCookies: process.env.NODE_ENV === "production",
 });
 
 const shutdown = async (): Promise<void> => {
   await app.close();
   await queue.close();
+  await redis.quit();
   await db.$disconnect();
 };
 

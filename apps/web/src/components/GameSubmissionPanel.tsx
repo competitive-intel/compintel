@@ -6,7 +6,7 @@ import { useNavigate } from "react-router-dom";
 import { ApiError, getPlayerNames, submitPlayer } from "../lib/api";
 import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
 import { Button } from "./ui/button";
-import { Combobox } from "./ui/combobox";
+import { CreatableCombobox } from "./ui/creatable-combobox";
 import { CodeEditor } from "./CodeEditor";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "./ui/field";
 
@@ -37,7 +37,7 @@ export function GameSubmissionPanel({ gameSlug }: { gameSlug: string }) {
         <FieldGroup>
           <Field>
             <FieldLabel htmlFor="submission-name">AI 名称</FieldLabel>
-            <Combobox
+            <CreatableCombobox
               id="submission-name"
               value={name}
               options={playerNames.data ?? []}

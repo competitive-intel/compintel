@@ -6,16 +6,21 @@ import {
   adminUserSchema,
   adminUsersResponseSchema,
   authResponseSchema,
+  captchaConfigSchema,
   gameDetailSchema,
   gameListSchema,
+  okResponseSchema,
   playerNameListSchema,
   registerResponseSchema,
   submissionDetailSchema,
   submissionAcceptedSchema,
   submissionRecordListSchema,
+  systemSettingsSchema,
+  verifyEmailResponseSchema,
   type AdminGame,
   type AdminBuiltinPlayer,
   type AdminUser,
+  type CaptchaConfig,
   type CreateBuiltinPlayerInput,
   type CreateBuiltinPlayerVersionInput,
   type CreatePlayerInput,
@@ -24,12 +29,17 @@ import {
   type GameSummary,
   type LoginInput,
   type RegisterInput,
+  type ResendVerificationInput,
   type ReviewUserInput,
   type SubmissionAccepted,
   type SubmissionDetail,
   type SubmissionRecordList,
+  type SystemSettings,
   type UpdateGameInput,
   type UpdateBuiltinPlayerInput,
+  type UpdateSystemSettingsInput,
+  type VerifyEmailInput,
+  type VerifyEmailResponse,
 } from "@compintel/contracts";
 import axios, { type AxiosRequestConfig } from "axios";
 import { z } from "zod";
@@ -64,6 +74,36 @@ export async function register(input: RegisterInput): Promise<CurrentUser> {
       "注册失败",
     )
   ).user;
+}
+
+export async function verifyEmail(
+  input: VerifyEmailInput,
+): Promise<VerifyEmailResponse> {
+  return request(
+    { method: "POST", url: "/v1/auth/verify-email", data: input },
+    verifyEmailResponseSchema,
+    "邮箱验证失败",
+  );
+}
+
+export async function resendVerification(
+  input: ResendVerificationInput,
+): Promise<void> {
+  await request(
+    { method: "POST", url: "/v1/auth/resend-verification", data: input },
+    okResponseSchema,
+    "发送验证码失败",
+  );
+}
+
+export async function getCaptchaConfig(
+  signal?: AbortSignal,
+): Promise<CaptchaConfig> {
+  return request(
+    { method: "GET", url: "/v1/auth/captcha-config", ...withSignal(signal) },
+    captchaConfigSchema,
+    "人机验证配置加载失败",
+  );
 }
 
 export async function login(input: LoginInput): Promise<CurrentUser> {
@@ -120,6 +160,26 @@ export async function reviewUser(
     },
     adminUserSchema,
     "审核失败",
+  );
+}
+
+export async function getSystemSettings(
+  signal?: AbortSignal,
+): Promise<SystemSettings> {
+  return request(
+    { method: "GET", url: "/v1/admin/system-settings", ...withSignal(signal) },
+    systemSettingsSchema,
+    "系统设置加载失败",
+  );
+}
+
+export async function updateSystemSettings(
+  input: UpdateSystemSettingsInput,
+): Promise<SystemSettings> {
+  return request(
+    { method: "PATCH", url: "/v1/admin/system-settings", data: input },
+    systemSettingsSchema,
+    "保存系统设置失败",
   );
 }
 
