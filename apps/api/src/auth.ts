@@ -12,7 +12,6 @@ import type {
   LoginInput,
   RegisterInput,
   ResendVerificationInput,
-  ReviewUserInput,
   VerifyEmailInput,
   VerifyEmailResponse,
 } from "@compintel/contracts";
@@ -332,11 +331,8 @@ export class AuthService {
     if (user.emailVerifiedAt === null) {
       throw new HttpError(403, "请先完成邮箱验证", "EMAIL_UNVERIFIED");
     }
-    if (user.approvalStatus === "PENDING") {
-      throw new HttpError(403, "账号正在等待管理员审核", "ACCOUNT_PENDING");
-    }
-    if (user.approvalStatus === "REJECTED") {
-      throw new HttpError(403, "账号注册申请未通过审核", "ACCOUNT_REJECTED");
+    if (user.role === "BANNED") {
+      throw new HttpError(403, "账号已被封禁", "ACCOUNT_BANNED");
     }
 
     const token = randomBytes(32).toString("base64url");
@@ -356,7 +352,7 @@ export class AuthService {
     if (session === null) return null;
     if (
       session.expiresAt.getTime() <= this.now().getTime() ||
-      session.user.approvalStatus !== "APPROVED" ||
+      session.user.role === "BANNED" ||
       session.user.emailVerifiedAt === null
     ) {
       await this.db.session.deleteMany({ where: { id: session.id } });
@@ -374,56 +370,103 @@ export class AuthService {
 
   async listUsers(): Promise<AdminUser[]> {
     const users = await this.db.user.findMany({
-      orderBy: [{ approvalStatus: "asc" }, { createdAt: "desc" }],
+      orderBy: [{ role: "asc" }, { createdAt: "desc" }],
       include: {
-        reviewedBy: { select: { id: true, displayName: true } },
+        players: {
+          where: { kind: "USER" },
+          select: {
+            _count: { select: { versions: true } },
+          },
+        },
       },
     });
-    return users.map(serializeAdminUser);
+    return users.map((user) =>
+      serializeAdminUser(user, countUserSubmissions(user.players)),
+    );
   }
 
-  async reviewUser(
-    administratorId: string,
-    userId: string,
-    input: ReviewUserInput,
-  ): Promise<AdminUser> {
+  async banUser(administratorId: string, userId: string): Promise<AdminUser> {
     if (administratorId === userId) {
-      throw new HttpError(400, "不能审核自己的账号", "CANNOT_REVIEW_SELF");
+      throw new HttpError(400, "不能封禁自己的账号", "CANNOT_BAN_SELF");
     }
-    const status = input.decision === "APPROVE" ? "APPROVED" : "REJECTED";
-    const existing = await this.db.user.findUnique({ where: { id: userId } });
+    const existing = await this.db.user.findUnique({
+      where: { id: userId },
+      include: {
+        players: {
+          where: { kind: "USER" },
+          select: {
+            _count: { select: { versions: true } },
+          },
+        },
+      },
+    });
     if (existing === null) {
       throw new HttpError(404, "用户不存在", "USER_NOT_FOUND");
     }
     if (existing.role === "ADMIN") {
-      throw new HttpError(400, "不能审核管理员账号", "CANNOT_REVIEW_ADMIN");
+      throw new HttpError(400, "不能封禁管理员账号", "CANNOT_BAN_ADMIN");
     }
-    if (existing.emailVerifiedAt === null) {
-      throw new HttpError(
-        400,
-        "该用户尚未完成邮箱验证，暂不能审核",
-        "EMAIL_UNVERIFIED",
-      );
+    if (existing.role === "BANNED") {
+      throw new HttpError(400, "该账号已被封禁", "USER_ALREADY_BANNED");
     }
 
     const user = await this.db.$transaction(async (tx) => {
       const updated = await tx.user.update({
         where: { id: userId },
-        data: {
-          approvalStatus: status,
-          reviewedAt: this.now(),
-          reviewedById: administratorId,
-        },
+        data: { role: "BANNED" },
         include: {
-          reviewedBy: { select: { id: true, displayName: true } },
+          players: {
+            where: { kind: "USER" },
+            select: {
+              _count: { select: { versions: true } },
+            },
+          },
         },
       });
-      if (status === "REJECTED") {
-        await tx.session.deleteMany({ where: { userId } });
-      }
+      await tx.session.deleteMany({ where: { userId } });
       return updated;
     });
-    return serializeAdminUser(user);
+    return serializeAdminUser(user, countUserSubmissions(user.players));
+  }
+
+  async unbanUser(administratorId: string, userId: string): Promise<AdminUser> {
+    if (administratorId === userId) {
+      throw new HttpError(400, "不能解封自己的账号", "CANNOT_BAN_SELF");
+    }
+    const existing = await this.db.user.findUnique({
+      where: { id: userId },
+      include: {
+        players: {
+          where: { kind: "USER" },
+          select: {
+            _count: { select: { versions: true } },
+          },
+        },
+      },
+    });
+    if (existing === null) {
+      throw new HttpError(404, "用户不存在", "USER_NOT_FOUND");
+    }
+    if (existing.role === "ADMIN") {
+      throw new HttpError(400, "不能解封管理员账号", "CANNOT_BAN_ADMIN");
+    }
+    if (existing.role !== "BANNED") {
+      throw new HttpError(400, "该账号未被封禁", "USER_NOT_BANNED");
+    }
+
+    const user = await this.db.user.update({
+      where: { id: userId },
+      data: { role: "USER" },
+      include: {
+        players: {
+          where: { kind: "USER" },
+          select: {
+            _count: { select: { versions: true } },
+          },
+        },
+      },
+    });
+    return serializeAdminUser(user, countUserSubmissions(user.players));
   }
 
   /**
@@ -586,7 +629,6 @@ function serializeUser(user: {
   email: string;
   emailVerifiedAt: Date | null;
   role: CurrentUser["role"];
-  approvalStatus: CurrentUser["approvalStatus"];
   createdAt: Date;
 }): CurrentUser {
   return {
@@ -596,20 +638,22 @@ function serializeUser(user: {
     email: user.email,
     emailVerified: user.emailVerifiedAt !== null,
     role: user.role,
-    approvalStatus: user.approvalStatus,
     createdAt: user.createdAt.toISOString(),
   };
 }
 
+function countUserSubmissions(
+  players: Array<{ _count: { versions: number } }>,
+): number {
+  return players.reduce((total, player) => total + player._count.versions, 0);
+}
+
 function serializeAdminUser(
-  user: Parameters<typeof serializeUser>[0] & {
-    reviewedAt: Date | null;
-    reviewedBy: { id: string; displayName: string } | null;
-  },
+  user: Parameters<typeof serializeUser>[0],
+  submissionCount: number,
 ): AdminUser {
   return {
     ...serializeUser(user),
-    reviewedAt: user.reviewedAt?.toISOString() ?? null,
-    reviewedBy: user.reviewedBy,
+    submissionCount,
   };
 }

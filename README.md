@@ -85,7 +85,7 @@ pnpm --filter @compintel/worker dev
 pnpm --filter @compintel/web dev
 ```
 
-先使用 seed 创建的管理员登录，在“用户审核”页面批准注册账号，并在“游戏管理”页面维护游戏目录和数据库中的内置 C++ 程序。至少启用一个平台程序后，审核通过的用户即可从游戏详情页提交 C++ Player，并在公开评测记录中查看所有用户的不可变源码版本及平台对手结果。身份验证接口见 `docs/api/authentication.md`，游戏与内置程序接口见 `docs/api/games.md`，Player 提交与公开评测接口见 `docs/api/player-evaluations.md`。运行 `pnpm typecheck` 和 `pnpm test` 可执行仓库的静态检查与测试。
+先使用 seed 创建的管理员登录，在“游戏管理”页面维护游戏目录和数据库中的内置 C++ 程序。至少启用一个平台程序后，已验证邮箱的用户即可从游戏详情页提交 C++ Player，并在公开评测记录中查看所有用户的不可变源码版本及平台对手结果。管理员可在“用户管理”页面封禁或解封账号。身份验证接口见 `docs/api/authentication.md`，游戏与内置程序接口见 `docs/api/games.md`，Player 提交与公开评测接口见 `docs/api/player-evaluations.md`。运行 `pnpm typecheck` 和 `pnpm test` 可执行仓库的静态检查与测试。
 
 ## 开发约定
 

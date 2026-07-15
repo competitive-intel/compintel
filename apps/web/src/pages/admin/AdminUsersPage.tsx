@@ -1,6 +1,6 @@
-import type { AdminUser, ReviewUserInput } from "@compintel/contracts";
+import type { AdminUser } from "@compintel/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, LoaderCircle, UserRound, X } from "lucide-react";
+import { Ban, LoaderCircle, UserRound } from "lucide-react";
 
 import { PageTitle } from "../../components/PageTitle";
 import { Alert, AlertDescription, AlertTitle } from "../../components/ui/alert";
@@ -13,26 +13,28 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "../../components/ui/empty";
-import { ApiError, getAdminUsers, reviewUser } from "../../lib/api";
+import { ApiError, banUser, getAdminUsers, unbanUser } from "../../lib/api";
 import { usePageTitle } from "../../lib/use-page-title";
 
 const usersQueryKey = ["admin", "users"] as const;
 
 export function AdminUsersPage() {
-  usePageTitle("用户审核");
+  usePageTitle("用户管理");
   const queryClient = useQueryClient();
   const users = useQuery({
     queryKey: usersQueryKey,
     queryFn: ({ signal }) => getAdminUsers(signal),
   });
-  const review = useMutation({
-    mutationFn: ({
-      userId,
-      decision,
-    }: {
-      userId: string;
-      decision: ReviewUserInput["decision"];
-    }) => reviewUser(userId, { decision }),
+  const ban = useMutation({
+    mutationFn: (userId: string) => banUser(userId),
+    onSuccess: (updated) => {
+      queryClient.setQueryData<AdminUser[]>(usersQueryKey, (current) =>
+        current?.map((user) => (user.id === updated.id ? updated : user)),
+      );
+    },
+  });
+  const unban = useMutation({
+    mutationFn: (userId: string) => unbanUser(userId),
     onSuccess: (updated) => {
       queryClient.setQueryData<AdminUser[]>(usersQueryKey, (current) =>
         current?.map((user) => (user.id === updated.id ? updated : user)),
@@ -40,17 +42,22 @@ export function AdminUsersPage() {
     },
   });
 
-  const pendingCount =
-    users.data?.filter(
-      (user) => user.approvalStatus === "PENDING" && user.emailVerified,
-    ).length ?? 0;
+  const bannedCount =
+    users.data?.filter((user) => user.role === "BANNED").length ?? 0;
+  const actionError = ban.error ?? unban.error;
+  const actionPending = ban.isPending || unban.isPending;
+  const actionUserId = ban.isPending
+    ? ban.variables
+    : unban.isPending
+      ? unban.variables
+      : undefined;
 
   return (
     <section className="py-10 sm:py-12">
       <header className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <PageTitle>用户审核</PageTitle>
-        <Badge variant={pendingCount > 0 ? "default" : "secondary"}>
-          {pendingCount} 个待审核
+        <PageTitle>用户管理</PageTitle>
+        <Badge variant={bannedCount > 0 ? "destructive" : "secondary"}>
+          {bannedCount} 个已封禁
         </Badge>
       </header>
 
@@ -82,10 +89,11 @@ export function AdminUsersPage() {
       )}
       {users.data !== undefined && users.data.length > 0 && (
         <Card className="overflow-hidden">
-          <div className="hidden grid-cols-[minmax(180px,1fr)_140px_160px_240px] bg-muted/50 px-5 py-3 text-xs font-medium text-muted-foreground lg:grid">
+          <div className="hidden grid-cols-[minmax(180px,1fr)_100px_100px_120px_140px] bg-muted/50 px-5 py-3 text-xs font-medium text-muted-foreground lg:grid">
             <span>用户</span>
-            <span>身份</span>
-            <span>状态</span>
+            <span>用户名</span>
+            <span>角色</span>
+            <span>总提交次数</span>
             <span className="text-right">操作</span>
           </div>
           <div className="divide-y">
@@ -93,20 +101,19 @@ export function AdminUsersPage() {
               <UserRow
                 key={user.id}
                 user={user}
-                busy={review.isPending && review.variables?.userId === user.id}
-                onReview={(decision) =>
-                  review.mutate({ userId: user.id, decision })
-                }
+                busy={actionPending && actionUserId === user.id}
+                onBan={() => ban.mutate(user.id)}
+                onUnban={() => unban.mutate(user.id)}
               />
             ))}
           </div>
-          {review.isError && (
+          {actionError && (
             <div className="p-4">
               <Alert variant="destructive">
-                <AlertTitle>审核操作失败</AlertTitle>
+                <AlertTitle>操作失败</AlertTitle>
                 <AlertDescription>
-                  {review.error instanceof ApiError
-                    ? review.error.message
+                  {actionError instanceof ApiError
+                    ? actionError.message
                     : "请稍后重试"}
                 </AlertDescription>
               </Alert>
@@ -121,88 +128,58 @@ export function AdminUsersPage() {
 function UserRow({
   user,
   busy,
-  onReview,
+  onBan,
+  onUnban,
 }: {
   user: AdminUser;
   busy: boolean;
-  onReview: (decision: ReviewUserInput["decision"]) => void;
+  onBan: () => void;
+  onUnban: () => void;
 }) {
   return (
-    <article className="grid min-h-24 grid-cols-1 items-center gap-3 px-5 py-4 lg:grid-cols-[minmax(180px,1fr)_140px_160px_240px] lg:gap-4">
+    <article className="grid min-h-24 grid-cols-1 items-center gap-3 px-5 py-4 lg:grid-cols-[minmax(180px,1fr)_100px_100px_120px_140px] lg:gap-4">
       <div className="min-w-0">
         <p className="truncate text-sm font-medium">{user.displayName}</p>
-        <p className="mt-1 truncate text-xs text-muted-foreground">
-          @{user.username}
-        </p>
         <p className="mt-1 truncate text-xs text-muted-foreground">
           {user.email}
           {!user.emailVerified ? " · 未验证" : ""}
         </p>
       </div>
-      <div>
-        <Badge variant={user.role === "ADMIN" ? "default" : "secondary"}>
-          {user.role === "ADMIN" ? "管理员" : "用户"}
-        </Badge>
+      <div className="truncate text-sm text-muted-foreground">
+        @{user.username}
       </div>
       <div>
-        <ApprovalBadge
-          status={user.approvalStatus}
-          emailVerified={user.emailVerified}
-        />
+        <RoleBadge role={user.role} />
       </div>
+      <div className="text-sm tabular-nums">{user.submissionCount}</div>
       <div className="flex flex-wrap gap-2 lg:justify-end">
         {user.role === "USER" && (
-          <>
-            <Button
-              size="sm"
-              disabled={
-                busy ||
-                !user.emailVerified ||
-                user.approvalStatus === "REJECTED"
-              }
-              variant="outline"
-              onClick={() => onReview("REJECT")}
-            >
-              <X data-icon="inline-start" />
-              拒绝
-            </Button>
-            <Button
-              size="sm"
-              disabled={
-                busy ||
-                !user.emailVerified ||
-                user.approvalStatus === "APPROVED"
-              }
-              onClick={() => onReview("APPROVE")}
-            >
-              {busy ? (
-                <LoaderCircle
-                  className="animate-spin"
-                  data-icon="inline-start"
-                />
-              ) : (
-                <Check data-icon="inline-start" />
-              )}
-              {busy ? "处理中…" : "通过"}
-            </Button>
-          </>
+          <Button size="sm" disabled={busy} variant="outline" onClick={onBan}>
+            {busy ? (
+              <LoaderCircle className="animate-spin" data-icon="inline-start" />
+            ) : (
+              <Ban data-icon="inline-start" />
+            )}
+            {busy ? "处理中…" : "封禁"}
+          </Button>
+        )}
+        {user.role === "BANNED" && (
+          <Button size="sm" disabled={busy} onClick={onUnban}>
+            {busy ? (
+              <LoaderCircle className="animate-spin" data-icon="inline-start" />
+            ) : null}
+            {busy ? "处理中…" : "解封"}
+          </Button>
         )}
       </div>
     </article>
   );
 }
 
-function ApprovalBadge({
-  status,
-  emailVerified,
-}: {
-  status: AdminUser["approvalStatus"];
-  emailVerified: boolean;
-}) {
-  if (!emailVerified) return <Badge variant="secondary">待验证邮箱</Badge>;
-  if (status === "APPROVED") return <Badge>已通过</Badge>;
-  if (status === "REJECTED") {
-    return <Badge variant="destructive">已拒绝</Badge>;
+function RoleBadge({ role }: { role: AdminUser["role"] }) {
+  if (role === "ADMIN") return <Badge>管理员</Badge>;
+  if (role === "BANNED") {
+    return <Badge variant="destructive">已封禁</Badge>;
   }
-  return <Badge variant="secondary">待审核</Badge>;
+  return <Badge variant="secondary">用户</Badge>;
 }

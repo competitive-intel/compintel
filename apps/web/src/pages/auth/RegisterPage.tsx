@@ -83,7 +83,7 @@ export function RegisterPage() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>申请账号</CardTitle>
+        <CardTitle>注册账号</CardTitle>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit}>
@@ -203,7 +203,7 @@ export function RegisterPage() {
                     data-icon="inline-start"
                   />
                 )}
-                {mutation.isPending ? "正在提交…" : "提交注册申请"}
+                {mutation.isPending ? "正在提交…" : "注册"}
               </Button>
             </Field>
           </FieldGroup>

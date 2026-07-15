@@ -3,6 +3,7 @@ import test from "node:test";
 
 import type { PrismaClient } from "@compintel/db";
 
+import { HttpError } from "../src/errors.js";
 import { SubmissionService } from "../src/submissions.js";
 
 test("creates and enqueues one evaluation per built-in player", async () => {
@@ -35,6 +36,9 @@ test("creates and enqueues one evaluation per built-in player", async () => {
       },
     },
     playerVersion: {
+      async count() {
+        return 0;
+      },
       async create() {
         return { id: "player-version-1", version: 1 };
       },
@@ -103,6 +107,9 @@ test("reuses a same-name player and increments its version", async () => {
       },
     },
     playerVersion: {
+      async count() {
+        return 0;
+      },
       async create({ data }: { data: { version: number } }) {
         createdVersion = data.version;
         return { id: "player-version-5", version: data.version };
@@ -158,4 +165,39 @@ test("lists only the current user's player names for the game", async () => {
     ownerId: "user-1",
     kind: "USER",
   });
+});
+
+test("rejects submissions when the 24h sliding window is full", async () => {
+  const transaction = {
+    game: {
+      async findFirst() {
+        return { id: "game-1", slug: "gomoku", isPublished: true };
+      },
+    },
+    playerVersion: {
+      async count() {
+        return 50;
+      },
+      async create() {
+        throw new Error("should not create a version when rate-limited");
+      },
+    },
+  };
+  const db = {
+    async $transaction(callback: (tx: typeof transaction) => unknown) {
+      return callback(transaction);
+    },
+  } as unknown as PrismaClient;
+
+  await assert.rejects(
+    new SubmissionService(db, { async add() {} }).createPlayer(
+      "user-1",
+      "gomoku",
+      { name: "bot", sourceCode: "int main() {}" },
+    ),
+    (error: unknown) =>
+      error instanceof HttpError &&
+      error.statusCode === 429 &&
+      error.code === "SUBMISSION_RATE_LIMIT",
+  );
 });
