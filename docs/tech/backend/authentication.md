@@ -10,9 +10,9 @@
 
 ## 注册与邮箱验证
 
-注册时 API 合并环境变量中的 SES 密钥与系统设置中的发件地址、模板 ID、邮箱白名单，规范化并校验邮箱，创建 `PENDING` 用户与验证码挑战，再通过腾讯云 SES 发送验证码。邮件发送失败会删除刚创建的用户，避免留下无法验证的半成品账号。
+注册时 API 合并环境变量中的 SES 密钥与系统设置中的发件地址、模板 ID、邮箱白名单，规范化并校验邮箱，创建 `PENDING` 用户与验证码挑战（有效期 5 分钟），再通过腾讯云 SES 发送验证码。邮件发送失败会删除刚创建的用户，避免留下无法验证的半成品账号。
 
-重发验证码时先调用 SES；仅在发信成功后才 upsert 新的 `codeHash` / `sentAt`，避免发信失败导致旧码失效并进入冷却。
+重发验证码时先调用 SES；仅在发信成功后才 upsert 新的 `codeHash` / `sentAt`（新码有效期同样为 5 分钟），避免发信失败导致旧码失效并进入冷却。
 
 若注册时用户名或规范化邮箱与已有账号冲突，且对方 `emailVerifiedAt` 为空且 `createdAt` 早于 24 小时，则删除该未验证账号（级联清理会话与验证码）后允许新注册；24 小时内的冲突仍返回 `USERNAME_CONFLICT` / `EMAIL_CONFLICT`。
 
@@ -24,12 +24,12 @@
 
 ### Per-IP 发信限制与 Turnstile
 
-API 使用 Redis 对验证邮件成功发送次数做 3 小时窗口计数（成功发送后 `INCR` 并设置 TTL）。IP 解析顺序为 `CF-Connecting-IP`、`X-Real-IP`、`X-Forwarded-For` 最左侧、最后 `req.ip`。
+API 使用 Redis 对验证邮件发信做 3 小时窗口计数：发信前通过 Lua 原子 `INCR`（首次写入时设置 TTL）预留名额，再按**预留后**的计数判定门槛，避免并发请求都读到旧计数后一起发信。SES 失败、门禁拒绝（Turnstile / 封禁）或其他未实际发信的路径会 `DECR` 回滚预留（计数不低于 0，不破坏既有 TTL）。成功发送则保留计数。IP 解析顺序为 `CF-Connecting-IP`、`X-Real-IP`、`X-Forwarded-For` 最左侧、最后 `req.ip`（见 `client-ip.ts`）。在 Cloudflare → Caddy → API 拓扑下，`CF-Connecting-IP` 由 Cloudflare 边缘写入，通常可信；Caddy 应透传该头，且源站应避免对公网直连开放，防止客户端伪造。当前无 `TRUSTED_CLIENT_IP_HEADER` 配置项，解析顺序写死在代码中。
 
-- 已成功发送 \> 5：后续注册发信 / 重发验证码必须通过 Turnstile（调用 Cloudflare `siteverify`）
-- 已成功发送 \> 10：直接拒绝，不可用 Turnstile 绕过
+- 预留后计数 \> 5：注册发信 / 重发验证码必须通过 Turnstile（调用 Cloudflare `siteverify`）
+- 预留后计数 \> 10：直接拒绝，不可用 Turnstile 绕过
 
-相关逻辑见 `apps/api/src/email-send-limiter.ts`、`turnstile.ts`、`client-ip.ts`。
+相关逻辑见 `apps/api/src/email-send-limiter.ts`、`turnstile.ts`、`client-ip.ts`；部署与 Caddy 示例见仓库根目录 [DEPLOY.md](../../../DEPLOY.md)。
 
 `verifyEmail`：邮箱已验证时仅返回 `{ ok: true }`，不向未认证调用者回传 `CurrentUser`；校验码成功后仍返回 `{ user }`。
 

@@ -429,6 +429,108 @@ test("register blocks an IP after the hard send threshold", async () => {
     (error: unknown) =>
       error instanceof HttpError && error.code === "EMAIL_SEND_IP_BLOCKED",
   );
+  // Gate rejection rolls the reservation back.
+  assert.equal(limiter.getCount(mailContext.clientIp), 11);
+});
+
+test("register keeps the reservation after SES success and rolls back on failure", async () => {
+  const limiter = new MemoryEmailSendLimiter();
+  const sesOk: SesClient = {
+    async sendVerificationEmail() {},
+  };
+  const sesFail: SesClient = {
+    async sendVerificationEmail() {
+      throw new Error("ses down");
+    },
+  };
+
+  let deleted = false;
+  const db = {
+    user: {
+      async findMany() {
+        return [];
+      },
+      async create({
+        data,
+      }: {
+        data: {
+          passwordHash: string;
+          email: string;
+          emailNormalized: string;
+          username: string;
+          displayName: string;
+        };
+      }) {
+        return {
+          id: "user-1",
+          username: data.username,
+          displayName: data.displayName,
+          email: data.email,
+          emailNormalized: data.emailNormalized,
+          passwordHash: data.passwordHash,
+          role: "USER",
+          status: "PENDING",
+          emailVerifiedAt: null,
+          createdAt: new Date(),
+          reviewedAt: null,
+          reviewedById: null,
+        };
+      },
+      async delete() {
+        deleted = true;
+        return { id: "user-1" };
+      },
+    },
+    emailVerification: {
+      async create() {
+        return {};
+      },
+    },
+    systemSettings: {
+      async upsert() {
+        return configuredSettings();
+      },
+    },
+    async $transaction<T>(fn: (tx: typeof db) => Promise<T>) {
+      return fn(db);
+    },
+  } as unknown as PrismaClient;
+
+  const ok = await new AuthService(db, {
+    settings: mailSettings(db),
+    ses: sesOk,
+    emailSendLimiter: limiter,
+  }).register(
+    {
+      username: "member_ok",
+      displayName: "参赛者",
+      email: "member_ok@gmail.com",
+      password: "password123",
+    },
+    mailContext,
+  );
+  assert.equal(ok.username, "member_ok");
+  assert.equal(limiter.getCount(mailContext.clientIp), 1);
+
+  await assert.rejects(
+    new AuthService(db, {
+      settings: mailSettings(db),
+      ses: sesFail,
+      emailSendLimiter: limiter,
+    }).register(
+      {
+        username: "member_fail",
+        displayName: "参赛者",
+        email: "member_fail@gmail.com",
+        password: "password123",
+      },
+      mailContext,
+    ),
+    (error: unknown) =>
+      error instanceof HttpError && error.code === "EMAIL_SEND_FAILED",
+  );
+  assert.equal(deleted, true);
+  assert.equal(limiter.getCount(mailContext.clientIp), 1);
 });
 
 test("register reclaims stale unverified username or email conflicts", async () => {

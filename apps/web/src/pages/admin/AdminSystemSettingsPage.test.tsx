@@ -44,11 +44,8 @@ describe("AdminSystemSettingsPage", () => {
     expect(
       await screen.findByDisplayValue("noreply@mail.example.com"),
     ).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        /已通过环境变量 TENCENT_SES_SECRET_ID \/ TENCENT_SES_SECRET_KEY 配置/,
-      ),
-    ).toBeInTheDocument();
+    expect(screen.queryByText("SES 凭证未配置")).not.toBeInTheDocument();
+    expect(screen.queryByText(/TENCENT_SES_SECRET_/)).not.toBeInTheDocument();
     expect(screen.getByText("腾讯云邮件推送")).toBeInTheDocument();
     expect(screen.getByText("Cloudflare Turnstile")).toBeInTheDocument();
     expect(screen.getByText("gmail.com")).toBeInTheDocument();
@@ -82,6 +79,25 @@ describe("AdminSystemSettingsPage", () => {
       }),
     );
     expect(await screen.findByText("系统设置已保存。")).toBeInTheDocument();
+  });
+
+  it("shows a destructive warning when SES credentials are missing", async () => {
+    vi.mocked(getSystemSettings).mockResolvedValue({
+      tencentSesCredentialsConfigured: false,
+      tencentSesFromAddress: "noreply@mail.example.com",
+      tencentSesTemplateId: 121332,
+      allowedEmailProviders: ["gmail.com"],
+      turnstileSiteKey: "",
+      turnstileSecretKeyConfigured: false,
+      updatedAt: "2026-07-15T08:00:00.000Z",
+    });
+
+    renderWithProviders(<AdminSystemSettingsPage />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("SES 凭证未配置");
+    expect(alert).toHaveTextContent("当前无法发送验证邮件");
+    expect(screen.queryByText(/TENCENT_SES_SECRET_/)).not.toBeInTheDocument();
   });
 
   it("rejects malformed SES template IDs", async () => {

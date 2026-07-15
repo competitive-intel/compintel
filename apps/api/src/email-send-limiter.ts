@@ -1,28 +1,73 @@
 import { Redis } from "ioredis";
 
-/** Sliding 3-hour window for per-IP verification email sends. */
+/** Fixed 3-hour window for per-IP verification email send reservations. */
 export const EMAIL_SEND_WINDOW_SECONDS = 3 * 60 * 60;
 
 /**
- * After this many successful sends in the window, subsequent requests need Turnstile.
- * Checked as `count > EMAIL_SEND_TURNSTILE_THRESHOLD` against already-sent count.
+ * After this many reserved slots in the window, subsequent requests need Turnstile.
+ * Checked as `count > EMAIL_SEND_TURNSTILE_THRESHOLD` against the post-reserve count.
  */
 export const EMAIL_SEND_TURNSTILE_THRESHOLD = 5;
 
 /**
- * After this many successful sends in the window, further sends are blocked.
- * Checked as `count > EMAIL_SEND_BLOCK_THRESHOLD`.
+ * After this many reserved slots in the window, further sends are blocked.
+ * Checked as `count > EMAIL_SEND_BLOCK_THRESHOLD` against the post-reserve count.
  */
 export const EMAIL_SEND_BLOCK_THRESHOLD = 10;
 
 export type EmailSendGate =
   { action: "allow" } | { action: "require_turnstile" } | { action: "block" };
 
-export interface EmailSendLimiter {
-  check(ip: string): Promise<EmailSendGate>;
-  /** Increment only after a verification email was actually sent. */
-  recordSuccessfulSend(ip: string): Promise<void>;
+export function gateFromCount(count: number): EmailSendGate {
+  if (count > EMAIL_SEND_BLOCK_THRESHOLD) {
+    return { action: "block" };
+  }
+  if (count > EMAIL_SEND_TURNSTILE_THRESHOLD) {
+    return { action: "require_turnstile" };
+  }
+  return { action: "allow" };
 }
+
+export interface EmailSendLimiter {
+  /**
+   * Atomically reserve one send slot (INCR + TTL on first hit).
+   * Gate is decided from the post-reserve count so concurrent requests cannot
+   * all observe a stale low counter before any increment.
+   */
+  reserve(ip: string): Promise<EmailSendGate>;
+  /**
+   * Roll back a reservation when the email is not actually sent
+   * (SES failure, gate rejection, validation error, etc.).
+   * Must not drive the counter below zero or refresh/clear TTL incorrectly.
+   */
+  release(ip: string): Promise<void>;
+}
+
+/** INCR then set TTL only when the key is newly created. */
+const RESERVE_LUA = `
+local n = redis.call('INCR', KEYS[1])
+if n == 1 then
+  redis.call('EXPIRE', KEYS[1], tonumber(ARGV[1]))
+end
+return n
+`;
+
+/**
+ * DECR with a floor of 0: delete the key at 0 instead of leaving 0 or going negative.
+ * Does not touch TTL on remaining positive counts.
+ */
+const RELEASE_LUA = `
+local v = redis.call('GET', KEYS[1])
+if not v then
+  return 0
+end
+local n = tonumber(v)
+if (not n) or n <= 1 then
+  redis.call('DEL', KEYS[1])
+  return 0
+end
+return redis.call('DECR', KEYS[1])
+`;
 
 export class RedisEmailSendLimiter implements EmailSendLimiter {
   constructor(
@@ -30,30 +75,18 @@ export class RedisEmailSendLimiter implements EmailSendLimiter {
     private readonly keyPrefix = "email-send:ip:",
   ) {}
 
-  async check(ip: string): Promise<EmailSendGate> {
-    const count = await this.readCount(ip);
-    if (count > EMAIL_SEND_BLOCK_THRESHOLD) {
-      return { action: "block" };
-    }
-    if (count > EMAIL_SEND_TURNSTILE_THRESHOLD) {
-      return { action: "require_turnstile" };
-    }
-    return { action: "allow" };
+  async reserve(ip: string): Promise<EmailSendGate> {
+    const count = await this.redis.eval(
+      RESERVE_LUA,
+      1,
+      this.keyFor(ip),
+      String(EMAIL_SEND_WINDOW_SECONDS),
+    );
+    return gateFromCount(typeof count === "number" ? count : Number(count));
   }
 
-  async recordSuccessfulSend(ip: string): Promise<void> {
-    const key = this.keyFor(ip);
-    const count = await this.redis.incr(key);
-    if (count === 1) {
-      await this.redis.expire(key, EMAIL_SEND_WINDOW_SECONDS);
-    }
-  }
-
-  private async readCount(ip: string): Promise<number> {
-    const raw = await this.redis.get(this.keyFor(ip));
-    if (raw === null) return 0;
-    const parsed = Number.parseInt(raw, 10);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  async release(ip: string): Promise<void> {
+    await this.redis.eval(RELEASE_LUA, 1, this.keyFor(ip));
   }
 
   private keyFor(ip: string): string {
@@ -65,31 +98,40 @@ export class RedisEmailSendLimiter implements EmailSendLimiter {
 export class MemoryEmailSendLimiter implements EmailSendLimiter {
   private readonly counts = new Map<string, number>();
 
-  async check(ip: string): Promise<EmailSendGate> {
-    const count = this.counts.get(ip) ?? 0;
-    if (count > EMAIL_SEND_BLOCK_THRESHOLD) {
-      return { action: "block" };
-    }
-    if (count > EMAIL_SEND_TURNSTILE_THRESHOLD) {
-      return { action: "require_turnstile" };
-    }
-    return { action: "allow" };
+  async reserve(ip: string): Promise<EmailSendGate> {
+    const next = (this.counts.get(ip) ?? 0) + 1;
+    this.counts.set(ip, next);
+    return gateFromCount(next);
   }
 
-  async recordSuccessfulSend(ip: string): Promise<void> {
-    this.counts.set(ip, (this.counts.get(ip) ?? 0) + 1);
+  async release(ip: string): Promise<void> {
+    const current = this.counts.get(ip) ?? 0;
+    if (current <= 1) {
+      this.counts.delete(ip);
+      return;
+    }
+    this.counts.set(ip, current - 1);
+  }
+
+  /** Test helper: seed the reserved/kept count without going through reserve. */
+  setCount(ip: string, count: number): void {
+    if (count <= 0) {
+      this.counts.delete(ip);
+      return;
+    }
+    this.counts.set(ip, count);
   }
 
   /** Test helper */
-  setCount(ip: string, count: number): void {
-    this.counts.set(ip, count);
+  getCount(ip: string): number {
+    return this.counts.get(ip) ?? 0;
   }
 }
 
 export class NoopEmailSendLimiter implements EmailSendLimiter {
-  async check(): Promise<EmailSendGate> {
+  async reserve(): Promise<EmailSendGate> {
     return { action: "allow" };
   }
 
-  async recordSuccessfulSend(): Promise<void> {}
+  async release(): Promise<void> {}
 }

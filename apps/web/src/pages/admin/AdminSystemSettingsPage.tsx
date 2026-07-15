@@ -151,14 +151,15 @@ export function AdminSystemSettingsPage() {
             onSubmit={handleSubmit}
           >
             <FieldGroup className="gap-5">
-              <Alert>
-                <AlertTitle>SES 凭证</AlertTitle>
-                <AlertDescription>
-                  {settings.data?.tencentSesCredentialsConfigured
-                    ? "已通过环境变量 TENCENT_SES_SECRET_ID / TENCENT_SES_SECRET_KEY 配置。"
-                    : "尚未配置环境变量 TENCENT_SES_SECRET_ID / TENCENT_SES_SECRET_KEY；未配置时无法发送验证邮件。"}
-                </AlertDescription>
-              </Alert>
+              {settings.data?.tencentSesCredentialsConfigured === false && (
+                <Alert variant="destructive">
+                  <CircleAlert />
+                  <AlertTitle>SES 凭证未配置</AlertTitle>
+                  <AlertDescription>
+                    服务器尚未配置腾讯云 SES 凭证，当前无法发送验证邮件。
+                  </AlertDescription>
+                </Alert>
+              )}
               <Field>
                 <FieldLabel htmlFor="ses-from-address">
                   腾讯云 SES 发件地址

@@ -29,7 +29,7 @@ import { SystemSettingsService } from "./system-settings.js";
 import { createTurnstileClient, type TurnstileClient } from "./turnstile.js";
 
 const SESSION_LIFETIME_MS = 7 * 24 * 60 * 60 * 1_000;
-const VERIFICATION_CODE_TTL_MS = 15 * 60 * 1_000;
+const VERIFICATION_CODE_TTL_MS = 5 * 60 * 1_000;
 const RESEND_COOLDOWN_MS = 60 * 1_000;
 const MAX_VERIFY_ATTEMPTS = 10;
 /** Unverified accounts older than this may be deleted to free username/email. */
@@ -79,95 +79,102 @@ export class AuthService {
   ): Promise<CurrentUser> {
     const mailConfig = await this.settings.getRawForMail();
     assertSesConfigured(mailConfig, "邮件服务尚未配置，暂时无法注册");
-    await this.enforceEmailSendGate(
+    const releaseReservation = await this.beginEmailSendAttempt(
       context.clientIp,
       input.turnstileToken,
       mailConfig,
     );
+    let emailSent = false;
 
-    let parsed;
     try {
-      parsed = parseAndNormalizeEmail(
-        input.email,
-        mailConfig.allowedEmailProviders,
-      );
-    } catch (error) {
-      if (error instanceof EmailPolicyError) {
-        throw new HttpError(400, error.message, error.code);
-      }
-      throw error;
-    }
-
-    await this.reclaimStaleUnverifiedConflicts(
-      input.username,
-      parsed.emailNormalized,
-    );
-
-    const passwordHash = await hashPassword(input.password);
-    const verifyCode = generateVerificationCode();
-    const codeHash = hashVerificationCode(verifyCode);
-    const sentAt = this.now();
-    const expiresAt = new Date(sentAt.getTime() + VERIFICATION_CODE_TTL_MS);
-
-    let user;
-    try {
-      user = await this.db.$transaction(async (tx) => {
-        const created = await tx.user.create({
-          data: {
-            username: input.username,
-            displayName: input.displayName,
-            email: parsed.email,
-            emailNormalized: parsed.emailNormalized,
-            passwordHash,
-          },
-        });
-        await tx.emailVerification.create({
-          data: {
-            userId: created.id,
-            codeHash,
-            expiresAt,
-            sentAt,
-          },
-        });
-        return created;
-      });
-    } catch (error) {
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === "P2002"
-      ) {
-        const target = Array.isArray(error.meta?.target)
-          ? error.meta.target.join(",")
-          : String(error.meta?.target ?? "");
-        if (target.includes("emailNormalized") || target.includes("email")) {
-          throw new HttpError(409, "该邮箱已被使用", "EMAIL_CONFLICT");
+      let parsed;
+      try {
+        parsed = parseAndNormalizeEmail(
+          input.email,
+          mailConfig.allowedEmailProviders,
+        );
+      } catch (error) {
+        if (error instanceof EmailPolicyError) {
+          throw new HttpError(400, error.message, error.code);
         }
-        throw new HttpError(409, "用户名已被使用", "USERNAME_CONFLICT");
+        throw error;
       }
-      throw error;
-    }
 
-    try {
-      await this.ses.sendVerificationEmail({
-        secretId: mailConfig.secretId,
-        secretKey: mailConfig.secretKey,
-        fromAddress: mailConfig.fromAddress,
-        templateId: mailConfig.templateId,
-        toAddress: parsed.email,
-        username: user.username,
-        verifyCode,
-      });
-    } catch {
-      await this.db.user.delete({ where: { id: user.id } }).catch(() => {});
-      throw new HttpError(
-        502,
-        "验证邮件发送失败，请稍后重试",
-        "EMAIL_SEND_FAILED",
+      await this.reclaimStaleUnverifiedConflicts(
+        input.username,
+        parsed.emailNormalized,
       );
-    }
 
-    await this.emailSendLimiter.recordSuccessfulSend(context.clientIp);
-    return serializeUser(user);
+      const passwordHash = await hashPassword(input.password);
+      const verifyCode = generateVerificationCode();
+      const codeHash = hashVerificationCode(verifyCode);
+      const sentAt = this.now();
+      const expiresAt = new Date(sentAt.getTime() + VERIFICATION_CODE_TTL_MS);
+
+      let user;
+      try {
+        user = await this.db.$transaction(async (tx) => {
+          const created = await tx.user.create({
+            data: {
+              username: input.username,
+              displayName: input.displayName,
+              email: parsed.email,
+              emailNormalized: parsed.emailNormalized,
+              passwordHash,
+            },
+          });
+          await tx.emailVerification.create({
+            data: {
+              userId: created.id,
+              codeHash,
+              expiresAt,
+              sentAt,
+            },
+          });
+          return created;
+        });
+      } catch (error) {
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === "P2002"
+        ) {
+          const target = Array.isArray(error.meta?.target)
+            ? error.meta.target.join(",")
+            : String(error.meta?.target ?? "");
+          if (target.includes("emailNormalized") || target.includes("email")) {
+            throw new HttpError(409, "该邮箱已被使用", "EMAIL_CONFLICT");
+          }
+          throw new HttpError(409, "用户名已被使用", "USERNAME_CONFLICT");
+        }
+        throw error;
+      }
+
+      try {
+        await this.ses.sendVerificationEmail({
+          secretId: mailConfig.secretId,
+          secretKey: mailConfig.secretKey,
+          fromAddress: mailConfig.fromAddress,
+          templateId: mailConfig.templateId,
+          toAddress: parsed.email,
+          username: user.username,
+          verifyCode,
+        });
+      } catch {
+        await this.db.user.delete({ where: { id: user.id } }).catch(() => {});
+        throw new HttpError(
+          502,
+          "验证邮件发送失败，请稍后重试",
+          "EMAIL_SEND_FAILED",
+        );
+      }
+
+      emailSent = true;
+      return serializeUser(user);
+    } finally {
+      if (!emailSent) {
+        await releaseReservation();
+      }
+    }
   }
 
   async verifyEmail(input: VerifyEmailInput): Promise<VerifyEmailResponse> {
@@ -230,79 +237,86 @@ export class AuthService {
   ): Promise<{ ok: true }> {
     const mailConfig = await this.settings.getRawForMail();
     assertSesConfigured(mailConfig, "邮件服务尚未配置，暂时无法发送验证码");
-    await this.enforceEmailSendGate(
+    const releaseReservation = await this.beginEmailSendAttempt(
       context.clientIp,
       input.turnstileToken,
       mailConfig,
     );
-
-    const user = await this.db.user.findUnique({
-      where: { username: input.username },
-      include: { emailVerification: true },
-    });
-    if (user === null) {
-      throw new HttpError(404, "用户不存在", "USER_NOT_FOUND");
-    }
-    if (user.emailVerifiedAt !== null) {
-      throw new HttpError(400, "邮箱已验证", "EMAIL_ALREADY_VERIFIED");
-    }
-
-    const existing = user.emailVerification;
-    if (
-      existing !== null &&
-      this.now().getTime() - existing.sentAt.getTime() < RESEND_COOLDOWN_MS
-    ) {
-      throw new HttpError(
-        429,
-        "验证码发送过于频繁，请稍后再试",
-        "VERIFICATION_RESEND_COOLDOWN",
-      );
-    }
-
-    const verifyCode = generateVerificationCode();
-    const codeHash = hashVerificationCode(verifyCode);
-    const sentAt = this.now();
-    const expiresAt = new Date(sentAt.getTime() + VERIFICATION_CODE_TTL_MS);
+    let emailSent = false;
 
     try {
-      await this.ses.sendVerificationEmail({
-        secretId: mailConfig.secretId,
-        secretKey: mailConfig.secretKey,
-        fromAddress: mailConfig.fromAddress,
-        templateId: mailConfig.templateId,
-        toAddress: user.email,
-        username: user.username,
-        verifyCode,
+      const user = await this.db.user.findUnique({
+        where: { username: input.username },
+        include: { emailVerification: true },
       });
-    } catch {
-      throw new HttpError(
-        502,
-        "验证邮件发送失败，请稍后重试",
-        "EMAIL_SEND_FAILED",
-      );
+      if (user === null) {
+        throw new HttpError(404, "用户不存在", "USER_NOT_FOUND");
+      }
+      if (user.emailVerifiedAt !== null) {
+        throw new HttpError(400, "邮箱已验证", "EMAIL_ALREADY_VERIFIED");
+      }
+
+      const existing = user.emailVerification;
+      if (
+        existing !== null &&
+        this.now().getTime() - existing.sentAt.getTime() < RESEND_COOLDOWN_MS
+      ) {
+        throw new HttpError(
+          429,
+          "验证码发送过于频繁，请稍后再试",
+          "VERIFICATION_RESEND_COOLDOWN",
+        );
+      }
+
+      const verifyCode = generateVerificationCode();
+      const codeHash = hashVerificationCode(verifyCode);
+      const sentAt = this.now();
+      const expiresAt = new Date(sentAt.getTime() + VERIFICATION_CODE_TTL_MS);
+
+      try {
+        await this.ses.sendVerificationEmail({
+          secretId: mailConfig.secretId,
+          secretKey: mailConfig.secretKey,
+          fromAddress: mailConfig.fromAddress,
+          templateId: mailConfig.templateId,
+          toAddress: user.email,
+          username: user.username,
+          verifyCode,
+        });
+      } catch {
+        throw new HttpError(
+          502,
+          "验证邮件发送失败，请稍后重试",
+          "EMAIL_SEND_FAILED",
+        );
+      }
+
+      // Persist the new challenge only after SES succeeds so a failed send
+      // keeps the previous code and does not start a cooldown window.
+      await this.db.emailVerification.upsert({
+        where: { userId: user.id },
+        create: {
+          userId: user.id,
+          codeHash,
+          expiresAt,
+          sentAt,
+          attemptCount: 0,
+        },
+        update: {
+          codeHash,
+          expiresAt,
+          sentAt,
+          attemptCount: 0,
+        },
+      });
+
+      emailSent = true;
+      return { ok: true };
+    } finally {
+      if (!emailSent) {
+        await releaseReservation();
+      }
     }
-
-    // Persist the new challenge only after SES succeeds so a failed send
-    // keeps the previous code and does not start a cooldown window.
-    await this.db.emailVerification.upsert({
-      where: { userId: user.id },
-      create: {
-        userId: user.id,
-        codeHash,
-        expiresAt,
-        sentAt,
-        attemptCount: 0,
-      },
-      update: {
-        codeHash,
-        expiresAt,
-        sentAt,
-        attemptCount: 0,
-      },
-    });
-
-    await this.emailSendLimiter.recordSuccessfulSend(context.clientIp);
-    return { ok: true };
   }
 
   async login(input: LoginInput): Promise<CreatedSession> {
@@ -412,45 +426,58 @@ export class AuthService {
     return serializeAdminUser(user);
   }
 
-  private async enforceEmailSendGate(
+  /**
+   * Atomically reserve a per-IP send slot, then enforce Turnstile / block rules.
+   * Caller must invoke the returned release if the verification email is not sent.
+   */
+  private async beginEmailSendAttempt(
     clientIp: string,
     turnstileToken: string | undefined,
     mailConfig: { turnstileSiteKey: string; turnstileSecretKey: string },
-  ): Promise<void> {
-    const gate = await this.emailSendLimiter.check(clientIp);
-    if (gate.action === "block") {
-      throw new HttpError(
-        429,
-        "该网络发信次数过多，请稍后再试",
-        "EMAIL_SEND_IP_BLOCKED",
-      );
-    }
-    if (gate.action === "require_turnstile") {
-      if (
-        mailConfig.turnstileSiteKey.length === 0 ||
-        mailConfig.turnstileSecretKey.length === 0
-      ) {
-        throw new HttpError(
-          503,
-          "人机验证尚未配置，暂时无法继续发送验证邮件",
-          "TURNSTILE_NOT_CONFIGURED",
-        );
-      }
-      if (turnstileToken === undefined || turnstileToken.length === 0) {
+  ): Promise<() => Promise<void>> {
+    const gate = await this.emailSendLimiter.reserve(clientIp);
+    const release = async () => {
+      await this.emailSendLimiter.release(clientIp);
+    };
+    try {
+      if (gate.action === "block") {
         throw new HttpError(
           429,
-          "请完成人机验证后再发送验证邮件",
-          "TURNSTILE_REQUIRED",
+          "该网络发信次数过多，请稍后再试",
+          "EMAIL_SEND_IP_BLOCKED",
         );
       }
-      const ok = await this.turnstile.verify({
-        secretKey: mailConfig.turnstileSecretKey,
-        token: turnstileToken,
-        remoteIp: clientIp,
-      });
-      if (!ok) {
-        throw new HttpError(400, "人机验证失败，请重试", "TURNSTILE_FAILED");
+      if (gate.action === "require_turnstile") {
+        if (
+          mailConfig.turnstileSiteKey.length === 0 ||
+          mailConfig.turnstileSecretKey.length === 0
+        ) {
+          throw new HttpError(
+            503,
+            "人机验证尚未配置，暂时无法继续发送验证邮件",
+            "TURNSTILE_NOT_CONFIGURED",
+          );
+        }
+        if (turnstileToken === undefined || turnstileToken.length === 0) {
+          throw new HttpError(
+            429,
+            "请完成人机验证后再发送验证邮件",
+            "TURNSTILE_REQUIRED",
+          );
+        }
+        const ok = await this.turnstile.verify({
+          secretKey: mailConfig.turnstileSecretKey,
+          token: turnstileToken,
+          remoteIp: clientIp,
+        });
+        if (!ok) {
+          throw new HttpError(400, "人机验证失败，请重试", "TURNSTILE_FAILED");
+        }
       }
+      return release;
+    } catch (error) {
+      await release();
+      throw error;
     }
   }
 
