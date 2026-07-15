@@ -11,7 +11,7 @@ CompIntel 是一个面向算法竞赛选手的通用 AI 对战平台。用户提
 当前已经打通五子棋 MVP 的主要闭环：
 
 - HttpOnly Cookie 会话认证、注册申请、邮箱验证和管理员审核；不再接受客户端提供的 `x-user-id`。
-- 管理员维护游戏目录、发布状态以及数据库中的平台内置 C++ Player；可在系统设置中配置腾讯云 SES 与允许的邮箱提供商。
+- 管理员维护游戏目录、发布状态以及数据库中的平台内置 C++ Player；可在系统设置中配置腾讯云 SES 发件地址/模板与允许的邮箱提供商。SES API 密钥通过环境变量 `TENCENT_SES_SECRET_ID` / `TENCENT_SES_SECRET_KEY` 配置。
 - 审核通过的用户查看已发布游戏，创建 Player 或提交不可变的新版本。
 - 每个用户版本会对同一游戏下所有启用的平台 Player 最新版本各创建一条 Evaluation。
 - API 使用 BullMQ 投递任务；Worker 分别编译用户和平台 C++ 源码，并通过 go-judge `/stream` turn-control 驱动五子棋对局。
@@ -108,7 +108,7 @@ pnpm db:seed
 pnpm exec turbo run dev --env-mode=loose
 ```
 
-`DATABASE_URL` 是 API、Worker、迁移和 seed 的必需变量；Worker 还需要 `REDIS_URL`、`JUDGE_URL`，API 使用 `API_HOST`、`API_PORT`。seed 仅在设置 `ADMIN_PASSWORD` 时创建/更新管理员。`.env.example` 中的密码只适合本地开发。
+`DATABASE_URL` 是 API、Worker、迁移和 seed 的必需变量；Worker 还需要 `REDIS_URL`、`JUDGE_URL`，API 使用 `API_HOST`、`API_PORT`。发送验证邮件还需配置 `TENCENT_SES_SECRET_ID` / `TENCENT_SES_SECRET_KEY`（可留空，但留空时无法注册发信）。seed 仅在设置 `ADMIN_PASSWORD` 时创建/更新管理员。`.env.example` 中的密码只适合本地开发。
 
 默认地址：Web `http://127.0.0.1:5173`、API `http://127.0.0.1:3000`、go-judge `http://127.0.0.1:5050`。真实启动验证至少检查：
 

@@ -38,22 +38,22 @@ import { usePageTitle } from "../../lib/use-page-title";
 const settingsQueryKey = ["admin", "system-settings"] as const;
 
 const EMAIL_PROVIDERS = [
-  "gmail",
-  "qq",
-  "163",
-  "126",
-  "outlook",
-  "yahoo",
-  "icloud",
-  "foxmail",
+  "gmail.com",
+  "qq.com",
+  "163.com",
+  "126.com",
+  "outlook.com",
+  "yahoo.com",
+  "icloud.com",
+  "foxmail.com",
 ] as const;
 
 type SettingsForm = {
-  tencentSesSecretId: string;
-  tencentSesSecretKey: string;
   tencentSesFromAddress: string;
   tencentSesTemplateId: string;
   allowedEmailProviders: string[];
+  turnstileSiteKey: string;
+  turnstileSecretKey: string;
 };
 
 export function AdminSystemSettingsPage() {
@@ -88,7 +88,13 @@ export function AdminSystemSettingsPage() {
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (form === null) return;
-    const templateId = Number.parseInt(form.tencentSesTemplateId, 10);
+    const rawTemplateId = form.tencentSesTemplateId.trim();
+    if (!/^\d+$/.test(rawTemplateId)) {
+      setSavedMessage(null);
+      setClientError("请输入有效的 SES 模板 ID");
+      return;
+    }
+    const templateId = Number.parseInt(rawTemplateId, 10);
     if (!Number.isInteger(templateId) || templateId <= 0) {
       setSavedMessage(null);
       setClientError("请输入有效的 SES 模板 ID");
@@ -97,13 +103,13 @@ export function AdminSystemSettingsPage() {
     setClientError(null);
     setSavedMessage(null);
     const input: UpdateSystemSettingsInput = {
-      tencentSesSecretId: form.tencentSesSecretId,
       tencentSesFromAddress: form.tencentSesFromAddress,
       tencentSesTemplateId: templateId,
       allowedEmailProviders: form.allowedEmailProviders,
+      turnstileSiteKey: form.turnstileSiteKey,
     };
-    if (form.tencentSesSecretKey.length > 0) {
-      input.tencentSesSecretKey = form.tencentSesSecretKey;
+    if (form.turnstileSecretKey.length > 0) {
+      input.turnstileSecretKey = form.turnstileSecretKey;
     }
     save.mutate(input);
   }
@@ -135,7 +141,8 @@ export function AdminSystemSettingsPage() {
           <div className="flex flex-col gap-2">
             <h2 className="text-xl font-semibold">腾讯云邮件推送</h2>
             <p className="text-sm text-muted-foreground">
-              配置注册邮箱验证所用的腾讯云 SES 凭证与允许的邮箱提供商。
+              配置注册邮箱验证所用的发件地址、模板与允许的邮箱提供商。API
+              密钥通过服务器环境变量配置，不在此页面填写。
             </p>
           </div>
           <form
@@ -144,47 +151,14 @@ export function AdminSystemSettingsPage() {
             onSubmit={handleSubmit}
           >
             <FieldGroup className="gap-5">
-              <Field>
-                <FieldLabel htmlFor="ses-secret-id">
-                  腾讯云 SES SecretId（AK）
-                </FieldLabel>
-                <Input
-                  id="ses-secret-id"
-                  autoComplete="off"
-                  value={form.tencentSesSecretId}
-                  onChange={(event) =>
-                    setForm({
-                      ...form,
-                      tencentSesSecretId: event.target.value,
-                    })
-                  }
-                />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="ses-secret-key">
-                  腾讯云 SES SecretKey（SK）
-                </FieldLabel>
-                <Input
-                  id="ses-secret-key"
-                  type="password"
-                  autoComplete="new-password"
-                  value={form.tencentSesSecretKey}
-                  placeholder={
-                    settings.data?.tencentSesSecretKeyConfigured
-                      ? "已配置（留空不修改）"
-                      : "尚未配置"
-                  }
-                  onChange={(event) =>
-                    setForm({
-                      ...form,
-                      tencentSesSecretKey: event.target.value,
-                    })
-                  }
-                />
-                <FieldDescription>
-                  出于安全考虑，已保存的 SecretKey 不会回显。
-                </FieldDescription>
-              </Field>
+              <Alert>
+                <AlertTitle>SES 凭证</AlertTitle>
+                <AlertDescription>
+                  {settings.data?.tencentSesCredentialsConfigured
+                    ? "已通过环境变量 TENCENT_SES_SECRET_ID / TENCENT_SES_SECRET_KEY 配置。"
+                    : "尚未配置环境变量 TENCENT_SES_SECRET_ID / TENCENT_SES_SECRET_KEY；未配置时无法发送验证邮件。"}
+                </AlertDescription>
+              </Alert>
               <Field>
                 <FieldLabel htmlFor="ses-from-address">
                   腾讯云 SES 发件地址
@@ -226,7 +200,7 @@ export function AdminSystemSettingsPage() {
               </Field>
               <Field>
                 <FieldLabel htmlFor="allowed-providers">
-                  允许的邮箱提供商
+                  允许的邮箱提供商域名
                 </FieldLabel>
                 <Combobox
                   multiple
@@ -242,7 +216,6 @@ export function AdminSystemSettingsPage() {
                 >
                   <ComboboxChips
                     ref={providersAnchor}
-                    id="allowed-providers"
                     className="w-full"
                   >
                     <ComboboxValue>
@@ -253,7 +226,10 @@ export function AdminSystemSettingsPage() {
                               {provider}
                             </ComboboxChip>
                           ))}
-                          <ComboboxChipsInput placeholder="选择邮箱提供商…" />
+                          <ComboboxChipsInput
+                            id="allowed-providers"
+                            placeholder="选择邮箱域名…"
+                          />
                         </>
                       )}
                     </ComboboxValue>
@@ -270,9 +246,60 @@ export function AdminSystemSettingsPage() {
                   </ComboboxContent>
                 </Combobox>
                 <FieldDescription>
-                  仅可从主流邮箱提供商中选择。
+                  按完整注册域匹配，合法子域（如 vip.163.com）自动放行。
                 </FieldDescription>
               </Field>
+
+              <div className="flex flex-col gap-2 pt-2">
+                <h2 className="text-xl font-semibold">Cloudflare Turnstile</h2>
+                <p className="text-sm text-muted-foreground">
+                  同一 IP 在 3 小时内成功发送验证邮件超过 5
+                  封后需要人机验证；超过 10 封将直接拒绝发信。
+                </p>
+              </div>
+              <Field>
+                <FieldLabel htmlFor="turnstile-site-key">
+                  Turnstile Site Key
+                </FieldLabel>
+                <Input
+                  id="turnstile-site-key"
+                  autoComplete="off"
+                  value={form.turnstileSiteKey}
+                  onChange={(event) =>
+                    setForm({
+                      ...form,
+                      turnstileSiteKey: event.target.value,
+                    })
+                  }
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="turnstile-secret-key">
+                  Turnstile Secret Key
+                </FieldLabel>
+                <Input
+                  id="turnstile-secret-key"
+                  type="password"
+                  autoComplete="new-password"
+                  value={form.turnstileSecretKey}
+                  placeholder={
+                    settings.data?.turnstileSecretKeyConfigured
+                      ? "已配置（留空不修改）"
+                      : "尚未配置"
+                  }
+                  onChange={(event) =>
+                    setForm({
+                      ...form,
+                      turnstileSecretKey: event.target.value,
+                    })
+                  }
+                />
+                <FieldDescription>
+                  Secret Key 不会回显到前端；触发限流后注册/重发页会展示
+                  Turnstile。
+                </FieldDescription>
+              </Field>
+
               {clientError !== null && (
                 <Alert variant="destructive">
                   <CircleAlert />
@@ -318,10 +345,10 @@ export function AdminSystemSettingsPage() {
 
 function toForm(settings: SystemSettings): SettingsForm {
   return {
-    tencentSesSecretId: settings.tencentSesSecretId,
-    tencentSesSecretKey: "",
     tencentSesFromAddress: settings.tencentSesFromAddress,
     tencentSesTemplateId: String(settings.tencentSesTemplateId),
     allowedEmailProviders: settings.allowedEmailProviders,
+    turnstileSiteKey: settings.turnstileSiteKey,
+    turnstileSecretKey: "",
   };
 }

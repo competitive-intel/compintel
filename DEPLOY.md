@@ -66,6 +66,9 @@ API_HOST=127.0.0.1
 API_PORT=3000
 NODE_ENV=production
 
+TENCENT_SES_SECRET_ID=<腾讯云 SES SecretId>
+TENCENT_SES_SECRET_KEY=<腾讯云 SES SecretKey>
+
 JUDGE_URL=http://127.0.0.1:5050
 JUDGE_AUTH_TOKEN=<按 go-judge 配置填写；无认证时留空>
 
@@ -77,7 +80,7 @@ ADMIN_PASSWORD=<随机且足够长的管理员密码>
 VITE_API_BASE_URL=/api
 ```
 
-`VITE_*` 变量会被写入浏览器静态产物，只能放公开地址，不能放数据库密码、Token 或内部服务地址。`ADMIN_PASSWORD` 只在 seed 时使用，生产环境不要使用 `.env.example` 中的示例值。
+`VITE_*` 变量会被写入浏览器静态产物，只能放公开地址，不能放数据库密码、Token 或内部服务地址。`ADMIN_PASSWORD` 只在 seed 时使用，生产环境不要使用 `.env.example` 中的示例值。`TENCENT_SES_SECRET_*` 仅供 API 进程读取，不要写入前端或数据库；发件地址与模板 ID 仍在管理后台系统设置中配置。
 
 ## 5. 启动 PostgreSQL、Redis 和 go-judge
 

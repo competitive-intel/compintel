@@ -3,6 +3,7 @@ import { CircleAlert, LoaderCircle } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
+import { TurnstileWidget } from "../../components/TurnstileWidget";
 import { Alert, AlertDescription, AlertTitle } from "../../components/ui/alert";
 import { Button } from "../../components/ui/button";
 import {
@@ -20,7 +21,7 @@ import {
   FieldLabel,
 } from "../../components/ui/field";
 import { Input } from "../../components/ui/input";
-import { ApiError, register } from "../../lib/api";
+import { ApiError, getCaptchaConfig, register } from "../../lib/api";
 import { usePageTitle } from "../../lib/use-page-title";
 
 export function RegisterPage() {
@@ -31,17 +32,44 @@ export function RegisterPage() {
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [clientError, setClientError] = useState<string | null>(null);
+  const [turnstileSiteKey, setTurnstileSiteKey] = useState<string | null>(null);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [requiresTurnstile, setRequiresTurnstile] = useState(false);
   const navigate = useNavigate();
   const mutation = useMutation({
-    mutationFn: () => register({ username, displayName, email, password }),
+    mutationFn: () => {
+      const input = {
+        username,
+        displayName,
+        email,
+        password,
+        ...(turnstileToken !== null ? { turnstileToken } : {}),
+      };
+      return register(input);
+    },
     onSuccess: (user) =>
       navigate("/verify-email", { state: { username: user.username } }),
+    onError: async (error) => {
+      if (error instanceof ApiError && error.code === "TURNSTILE_REQUIRED") {
+        setRequiresTurnstile(true);
+        try {
+          const config = await getCaptchaConfig();
+          setTurnstileSiteKey(config.turnstileSiteKey);
+        } catch {
+          setTurnstileSiteKey(null);
+        }
+      }
+    },
   });
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (password !== confirmation) {
       setClientError("两次输入的密码不一致");
+      return;
+    }
+    if (requiresTurnstile && turnstileToken === null) {
+      setClientError("请先完成人机验证");
       return;
     }
     setClientError(null);
@@ -124,17 +152,40 @@ export function RegisterPage() {
               />
               <FieldError>{clientError}</FieldError>
             </Field>
-            {mutation.isError && (
-              <Alert variant="destructive">
-                <CircleAlert />
-                <AlertTitle>注册失败</AlertTitle>
-                <AlertDescription>
-                  {mutation.error instanceof ApiError
-                    ? mutation.error.message
-                    : "注册失败，请稍后重试"}
-                </AlertDescription>
-              </Alert>
+            {requiresTurnstile && turnstileSiteKey !== null && (
+              <Field>
+                <FieldLabel>人机验证</FieldLabel>
+                <TurnstileWidget
+                  siteKey={turnstileSiteKey}
+                  onToken={setTurnstileToken}
+                />
+              </Field>
             )}
+            {mutation.isError &&
+              !(
+                mutation.error instanceof ApiError &&
+                mutation.error.code === "TURNSTILE_REQUIRED"
+              ) && (
+                <Alert variant="destructive">
+                  <CircleAlert />
+                  <AlertTitle>注册失败</AlertTitle>
+                  <AlertDescription>
+                    {mutation.error instanceof ApiError
+                      ? mutation.error.message
+                      : "注册失败，请稍后重试"}
+                  </AlertDescription>
+                </Alert>
+              )}
+            {requiresTurnstile &&
+              mutation.error instanceof ApiError &&
+              mutation.error.code === "TURNSTILE_REQUIRED" && (
+                <Alert>
+                  <AlertTitle>需要人机验证</AlertTitle>
+                  <AlertDescription>
+                    该网络发信较频繁，请完成验证后再次提交。
+                  </AlertDescription>
+                </Alert>
+              )}
             <Field>
               <Button
                 className="w-full"

@@ -6,17 +6,21 @@ import {
   adminUserSchema,
   adminUsersResponseSchema,
   authResponseSchema,
+  captchaConfigSchema,
   gameDetailSchema,
   gameListSchema,
+  okResponseSchema,
   playerNameListSchema,
   registerResponseSchema,
   submissionDetailSchema,
   submissionAcceptedSchema,
   submissionRecordListSchema,
   systemSettingsSchema,
+  verifyEmailResponseSchema,
   type AdminGame,
   type AdminBuiltinPlayer,
   type AdminUser,
+  type CaptchaConfig,
   type CreateBuiltinPlayerInput,
   type CreateBuiltinPlayerVersionInput,
   type CreatePlayerInput,
@@ -35,6 +39,7 @@ import {
   type UpdateBuiltinPlayerInput,
   type UpdateSystemSettingsInput,
   type VerifyEmailInput,
+  type VerifyEmailResponse,
 } from "@compintel/contracts";
 import axios, { type AxiosRequestConfig } from "axios";
 import { z } from "zod";
@@ -73,14 +78,12 @@ export async function register(input: RegisterInput): Promise<CurrentUser> {
 
 export async function verifyEmail(
   input: VerifyEmailInput,
-): Promise<CurrentUser> {
-  return (
-    await request(
-      { method: "POST", url: "/v1/auth/verify-email", data: input },
-      authResponseSchema,
-      "邮箱验证失败",
-    )
-  ).user;
+): Promise<VerifyEmailResponse> {
+  return request(
+    { method: "POST", url: "/v1/auth/verify-email", data: input },
+    verifyEmailResponseSchema,
+    "邮箱验证失败",
+  );
 }
 
 export async function resendVerification(
@@ -88,8 +91,18 @@ export async function resendVerification(
 ): Promise<void> {
   await request(
     { method: "POST", url: "/v1/auth/resend-verification", data: input },
-    z.object({ ok: z.literal(true) }),
+    okResponseSchema,
     "发送验证码失败",
+  );
+}
+
+export async function getCaptchaConfig(
+  signal?: AbortSignal,
+): Promise<CaptchaConfig> {
+  return request(
+    { method: "GET", url: "/v1/auth/captcha-config", ...withSignal(signal) },
+    captchaConfigSchema,
+    "人机验证配置加载失败",
   );
 }
 

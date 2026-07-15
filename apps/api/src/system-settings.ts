@@ -8,13 +8,34 @@ import { HttpError } from "./errors.js";
 
 const DEFAULT_SETTINGS_ID = "default";
 const DEFAULT_SES_TEMPLATE_ID = 121_332;
+const DEFAULT_ALLOWED_PROVIDERS = ["gmail.com", "qq.com", "163.com", "126.com"];
+
+export interface SystemSettingsOptions {
+  tencentSesSecretId?: string;
+  tencentSesSecretKey?: string;
+}
 
 export class SystemSettingsService {
-  constructor(private readonly db: PrismaClient) {}
+  private readonly tencentSesSecretId: string;
+  private readonly tencentSesSecretKey: string;
+
+  constructor(
+    private readonly db: PrismaClient,
+    options: SystemSettingsOptions = {},
+  ) {
+    this.tencentSesSecretId = options.tencentSesSecretId ?? "";
+    this.tencentSesSecretKey = options.tencentSesSecretKey ?? "";
+  }
 
   async get(): Promise<SystemSettings> {
     const settings = await this.ensureDefaults();
-    return serializeSettings(settings);
+    return this.serializeSettings(settings);
+  }
+
+  async getCaptchaConfig(): Promise<{ turnstileSiteKey: string | null }> {
+    const settings = await this.ensureDefaults();
+    const siteKey = settings.turnstileSiteKey.trim();
+    return { turnstileSiteKey: siteKey.length > 0 ? siteKey : null };
   }
 
   async update(
@@ -23,20 +44,14 @@ export class SystemSettingsService {
   ): Promise<SystemSettings> {
     await this.ensureDefaults();
     const data: {
-      tencentSesSecretId?: string;
-      tencentSesSecretKey?: string;
       tencentSesFromAddress?: string;
       tencentSesTemplateId?: number;
       allowedEmailProviders?: string[];
+      turnstileSiteKey?: string;
+      turnstileSecretKey?: string;
       updatedById: string;
     } = { updatedById: administratorId };
 
-    if (input.tencentSesSecretId !== undefined) {
-      data.tencentSesSecretId = input.tencentSesSecretId;
-    }
-    if (input.tencentSesSecretKey !== undefined) {
-      data.tencentSesSecretKey = input.tencentSesSecretKey;
-    }
     if (input.tencentSesFromAddress !== undefined) {
       data.tencentSesFromAddress = input.tencentSesFromAddress;
     }
@@ -55,12 +70,18 @@ export class SystemSettingsService {
         );
       }
     }
+    if (input.turnstileSiteKey !== undefined) {
+      data.turnstileSiteKey = input.turnstileSiteKey;
+    }
+    if (input.turnstileSecretKey !== undefined) {
+      data.turnstileSecretKey = input.turnstileSecretKey;
+    }
 
     const settings = await this.db.systemSettings.update({
       where: { id: DEFAULT_SETTINGS_ID },
       data,
     });
-    return serializeSettings(settings);
+    return this.serializeSettings(settings);
   }
 
   async getRawForMail(): Promise<{
@@ -69,14 +90,18 @@ export class SystemSettingsService {
     fromAddress: string;
     templateId: number;
     allowedEmailProviders: string[];
+    turnstileSiteKey: string;
+    turnstileSecretKey: string;
   }> {
     const settings = await this.ensureDefaults();
     return {
-      secretId: settings.tencentSesSecretId,
-      secretKey: settings.tencentSesSecretKey,
+      secretId: this.tencentSesSecretId,
+      secretKey: this.tencentSesSecretKey,
       fromAddress: settings.tencentSesFromAddress,
       templateId: settings.tencentSesTemplateId,
       allowedEmailProviders: settings.allowedEmailProviders,
+      turnstileSiteKey: settings.turnstileSiteKey,
+      turnstileSecretKey: settings.turnstileSecretKey,
     };
   }
 
@@ -87,26 +112,29 @@ export class SystemSettingsService {
       create: {
         id: DEFAULT_SETTINGS_ID,
         tencentSesTemplateId: DEFAULT_SES_TEMPLATE_ID,
-        allowedEmailProviders: ["gmail", "qq", "163", "126"],
+        allowedEmailProviders: DEFAULT_ALLOWED_PROVIDERS,
       },
     });
   }
-}
 
-function serializeSettings(settings: {
-  tencentSesSecretId: string;
-  tencentSesSecretKey: string;
-  tencentSesFromAddress: string;
-  tencentSesTemplateId: number;
-  allowedEmailProviders: string[];
-  updatedAt: Date;
-}): SystemSettings {
-  return {
-    tencentSesSecretId: settings.tencentSesSecretId,
-    tencentSesSecretKeyConfigured: settings.tencentSesSecretKey.length > 0,
-    tencentSesFromAddress: settings.tencentSesFromAddress,
-    tencentSesTemplateId: settings.tencentSesTemplateId,
-    allowedEmailProviders: settings.allowedEmailProviders,
-    updatedAt: settings.updatedAt.toISOString(),
-  };
+  private serializeSettings(settings: {
+    tencentSesFromAddress: string;
+    tencentSesTemplateId: number;
+    allowedEmailProviders: string[];
+    turnstileSiteKey: string;
+    turnstileSecretKey: string;
+    updatedAt: Date;
+  }): SystemSettings {
+    return {
+      tencentSesCredentialsConfigured:
+        this.tencentSesSecretId.length > 0 &&
+        this.tencentSesSecretKey.length > 0,
+      tencentSesFromAddress: settings.tencentSesFromAddress,
+      tencentSesTemplateId: settings.tencentSesTemplateId,
+      allowedEmailProviders: settings.allowedEmailProviders,
+      turnstileSiteKey: settings.turnstileSiteKey,
+      turnstileSecretKeyConfigured: settings.turnstileSecretKey.length > 0,
+      updatedAt: settings.updatedAt.toISOString(),
+    };
+  }
 }

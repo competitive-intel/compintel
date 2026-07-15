@@ -50,7 +50,7 @@ async function ensureSystemSettings(): Promise<void> {
     update: {},
     create: {
       id: "default",
-      allowedEmailProviders: ["gmail", "qq", "163", "126"],
+      allowedEmailProviders: ["gmail.com", "qq.com", "163.com", "126.com"],
     },
   });
 }

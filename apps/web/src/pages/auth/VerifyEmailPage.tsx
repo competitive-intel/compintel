@@ -3,6 +3,7 @@ import { CircleAlert, LoaderCircle } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 
+import { TurnstileWidget } from "../../components/TurnstileWidget";
 import { Alert, AlertDescription, AlertTitle } from "../../components/ui/alert";
 import { Button } from "../../components/ui/button";
 import {
@@ -19,7 +20,12 @@ import {
   FieldLabel,
 } from "../../components/ui/field";
 import { Input } from "../../components/ui/input";
-import { ApiError, resendVerification, verifyEmail } from "../../lib/api";
+import {
+  ApiError,
+  getCaptchaConfig,
+  resendVerification,
+  verifyEmail,
+} from "../../lib/api";
 import { usePageTitle } from "../../lib/use-page-title";
 
 export function VerifyEmailPage() {
@@ -31,17 +37,43 @@ export function VerifyEmailPage() {
   const [username, setUsername] = useState(initialUsername);
   const [code, setCode] = useState("");
   const [resendMessage, setResendMessage] = useState<string | null>(null);
+  const [turnstileSiteKey, setTurnstileSiteKey] = useState<string | null>(null);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [requiresTurnstile, setRequiresTurnstile] = useState(false);
 
   const verifyMutation = useMutation({
-    mutationFn: () => verifyEmail({ username, code }),
-    onSuccess: (user) =>
-      navigate("/pending", { state: { username: user.username } }),
+    mutationFn: () => verifyEmail({ username: username.trim(), code }),
+    onSuccess: (result) => {
+      if ("user" in result) {
+        navigate("/pending", { state: { username: result.user.username } });
+        return;
+      }
+      navigate("/login", { state: { username } });
+    },
   });
 
   const resendMutation = useMutation({
-    mutationFn: () => resendVerification({ username }),
+    mutationFn: () => {
+      const input = {
+        username: username.trim(),
+        ...(turnstileToken !== null ? { turnstileToken } : {}),
+      };
+      return resendVerification(input);
+    },
     onSuccess: () => {
       setResendMessage("验证码已重新发送，请查收邮箱。");
+      setTurnstileToken(null);
+    },
+    onError: async (error) => {
+      if (error instanceof ApiError && error.code === "TURNSTILE_REQUIRED") {
+        setRequiresTurnstile(true);
+        try {
+          const config = await getCaptchaConfig();
+          setTurnstileSiteKey(config.turnstileSiteKey);
+        } catch {
+          setTurnstileSiteKey(null);
+        }
+      }
     },
   });
 
@@ -85,6 +117,18 @@ export function VerifyEmailPage() {
                 请输入发送到注册邮箱的 6 位验证码
               </FieldDescription>
             </Field>
+            {requiresTurnstile && turnstileSiteKey !== null && (
+              <Field>
+                <FieldLabel>人机验证</FieldLabel>
+                <TurnstileWidget
+                  siteKey={turnstileSiteKey}
+                  onToken={setTurnstileToken}
+                />
+                <FieldDescription>
+                  重新发送验证码前需完成人机验证
+                </FieldDescription>
+              </Field>
+            )}
             {verifyMutation.isError && (
               <Alert variant="destructive">
                 <CircleAlert />
@@ -96,17 +140,31 @@ export function VerifyEmailPage() {
                 </AlertDescription>
               </Alert>
             )}
-            {resendMutation.isError && (
-              <Alert variant="destructive">
-                <CircleAlert />
-                <AlertTitle>发送失败</AlertTitle>
-                <AlertDescription>
-                  {resendMutation.error instanceof ApiError
-                    ? resendMutation.error.message
-                    : "发送失败，请稍后重试"}
-                </AlertDescription>
-              </Alert>
-            )}
+            {resendMutation.isError &&
+              !(
+                resendMutation.error instanceof ApiError &&
+                resendMutation.error.code === "TURNSTILE_REQUIRED"
+              ) && (
+                <Alert variant="destructive">
+                  <CircleAlert />
+                  <AlertTitle>发送失败</AlertTitle>
+                  <AlertDescription>
+                    {resendMutation.error instanceof ApiError
+                      ? resendMutation.error.message
+                      : "发送失败，请稍后重试"}
+                  </AlertDescription>
+                </Alert>
+              )}
+            {requiresTurnstile &&
+              resendMutation.error instanceof ApiError &&
+              resendMutation.error.code === "TURNSTILE_REQUIRED" && (
+                <Alert>
+                  <AlertTitle>需要人机验证</AlertTitle>
+                  <AlertDescription>
+                    该网络发信较频繁，请完成验证后再次发送。
+                  </AlertDescription>
+                </Alert>
+              )}
             {resendMessage !== null && (
               <Alert>
                 <AlertTitle>已发送</AlertTitle>
@@ -134,7 +192,9 @@ export function VerifyEmailPage() {
                 type="button"
                 variant="outline"
                 disabled={
-                  resendMutation.isPending || username.trim().length === 0
+                  resendMutation.isPending ||
+                  username.trim().length === 0 ||
+                  (requiresTurnstile && turnstileToken === null)
                 }
                 onClick={() => {
                   setResendMessage(null);

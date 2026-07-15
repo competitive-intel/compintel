@@ -14,6 +14,15 @@ export class EmailPolicyError extends Error {
   }
 }
 
+/** Expand legacy short names like `gmail` to `gmail.com`. */
+export function normalizeAllowedDomain(entry: string): string {
+  const trimmed = entry.trim().toLowerCase();
+  if (trimmed.includes(".")) {
+    return trimmed;
+  }
+  return `${trimmed}.com`;
+}
+
 export function parseAndNormalizeEmail(
   rawEmail: string,
   allowedProviders: readonly string[],
@@ -34,11 +43,11 @@ export function parseAndNormalizeEmail(
     domain = "gmail.com";
   }
 
-  const provider = domain.split(".")[0] ?? domain;
-  const allowed = new Set(
-    allowedProviders.map((value) => value.trim().toLowerCase()),
+  const allowedDomains = allowedProviders.map(normalizeAllowedDomain);
+  const matchedDomain = allowedDomains.find(
+    (allowed) => domain === allowed || domain.endsWith(`.${allowed}`),
   );
-  if (!allowed.has(provider) && !allowed.has(domain)) {
+  if (matchedDomain === undefined) {
     throw new EmailPolicyError(
       "仅支持主流邮箱提供商，请更换邮箱后再试",
       "EMAIL_PROVIDER_NOT_ALLOWED",
@@ -60,6 +69,6 @@ export function parseAndNormalizeEmail(
   return {
     email: `${local}@${domain}`,
     emailNormalized: `${normalizedLocal}@${normalizedDomain}`,
-    provider: domain === "gmail.com" ? "gmail" : provider,
+    provider: matchedDomain,
   };
 }

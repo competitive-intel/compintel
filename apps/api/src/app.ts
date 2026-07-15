@@ -6,12 +6,14 @@ import {
   adminUserSchema,
   adminUsersResponseSchema,
   authResponseSchema,
+  captchaConfigSchema,
   createBuiltinPlayerSchema,
   createBuiltinPlayerVersionSchema,
   createPlayerSchema,
   gameDetailSchema,
   gameListSchema,
   loginSchema,
+  okResponseSchema,
   playerNameListSchema,
   registerResponseSchema,
   registerSchema,
@@ -21,6 +23,7 @@ import {
   updateGameSchema,
   updateBuiltinPlayerSchema,
   updateSystemSettingsSchema,
+  verifyEmailResponseSchema,
   verifyEmailSchema,
   type CurrentUser,
 } from "@compintel/contracts";
@@ -30,6 +33,7 @@ import { z, ZodError } from "zod";
 
 import { AuthService } from "./auth.js";
 import { BuiltinPlayerService } from "./builtin-players.js";
+import { resolveClientIp } from "./client-ip.js";
 import { EvaluationRecordService } from "./evaluation-records.js";
 import { HttpError } from "./errors.js";
 import { GameService } from "./games.js";
@@ -78,7 +82,9 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
 
   app.post("/v1/auth/register", async (request, reply) => {
     const input = registerSchema.parse(request.body);
-    const user = await auth.register(input);
+    const user = await auth.register(input, {
+      clientIp: resolveClientIp(request.headers, request.ip),
+    });
     return reply.code(201).send(registerResponseSchema.parse({ user }));
   });
 
@@ -94,14 +100,20 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
 
   app.post("/v1/auth/verify-email", async (request) => {
     const input = verifyEmailSchema.parse(request.body);
-    const user = await auth.verifyEmail(input);
-    return authResponseSchema.parse({ user });
+    const result = await auth.verifyEmail(input);
+    return verifyEmailResponseSchema.parse(result);
   });
 
   app.post("/v1/auth/resend-verification", async (request) => {
     const input = resendVerificationSchema.parse(request.body);
-    await auth.resendVerification(input);
-    return { ok: true };
+    await auth.resendVerification(input, {
+      clientIp: resolveClientIp(request.headers, request.ip),
+    });
+    return okResponseSchema.parse({ ok: true });
+  });
+
+  app.get("/v1/auth/captcha-config", async () => {
+    return captchaConfigSchema.parse(await systemSettings.getCaptchaConfig());
   });
 
   app.post("/v1/auth/logout", async (request, reply) => {

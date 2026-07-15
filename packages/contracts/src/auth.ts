@@ -3,6 +3,8 @@ import { z } from "zod";
 export const userRoleSchema = z.enum(["USER", "ADMIN"]);
 export const approvalStatusSchema = z.enum(["PENDING", "APPROVED", "REJECTED"]);
 
+const turnstileTokenSchema = z.string().trim().min(1).max(2048).optional();
+
 export const registerSchema = z.object({
   username: z
     .string()
@@ -25,6 +27,7 @@ export const registerSchema = z.object({
     .max(128, "密码最多 128 个字符")
     .regex(/[A-Za-z]/, "密码必须包含字母")
     .regex(/[0-9]/, "密码必须包含数字"),
+  turnstileToken: turnstileTokenSchema,
 });
 
 export const loginSchema = z.object({
@@ -57,6 +60,7 @@ export const resendVerificationSchema = z.object({
     .min(1)
     .max(32)
     .transform((value) => value.toLowerCase()),
+  turnstileToken: turnstileTokenSchema,
 });
 
 export const currentUserSchema = z.object({
@@ -72,6 +76,15 @@ export const currentUserSchema = z.object({
 
 export const authResponseSchema = z.object({ user: currentUserSchema });
 export const registerResponseSchema = authResponseSchema;
+
+/** Generic success payload used by endpoints that acknowledge without returning user data. */
+export const okResponseSchema = z.object({ ok: z.literal(true) });
+
+/** Successful verification of a fresh code returns the user; already-verified returns ok only. */
+export const verifyEmailResponseSchema = z.union([
+  authResponseSchema,
+  okResponseSchema,
+]);
 
 export const adminUserSchema = currentUserSchema.extend({
   reviewedAt: z.iso.datetime().nullable(),
@@ -93,3 +106,5 @@ export type ResendVerificationInput = z.infer<typeof resendVerificationSchema>;
 export type CurrentUser = z.infer<typeof currentUserSchema>;
 export type AdminUser = z.infer<typeof adminUserSchema>;
 export type ReviewUserInput = z.infer<typeof reviewUserSchema>;
+export type OkResponse = z.infer<typeof okResponseSchema>;
+export type VerifyEmailResponse = z.infer<typeof verifyEmailResponseSchema>;

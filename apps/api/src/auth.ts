@@ -14,18 +14,26 @@ import type {
   ResendVerificationInput,
   ReviewUserInput,
   VerifyEmailInput,
+  VerifyEmailResponse,
 } from "@compintel/contracts";
 import { Prisma, type PrismaClient } from "@compintel/db";
 
+import {
+  NoopEmailSendLimiter,
+  type EmailSendLimiter,
+} from "./email-send-limiter.js";
 import { EmailPolicyError, parseAndNormalizeEmail } from "./email-policy.js";
 import { HttpError } from "./errors.js";
 import { createTencentSesClient, type SesClient } from "./ses-client.js";
 import { SystemSettingsService } from "./system-settings.js";
+import { createTurnstileClient, type TurnstileClient } from "./turnstile.js";
 
 const SESSION_LIFETIME_MS = 7 * 24 * 60 * 60 * 1_000;
 const VERIFICATION_CODE_TTL_MS = 15 * 60 * 1_000;
 const RESEND_COOLDOWN_MS = 60 * 1_000;
 const MAX_VERIFY_ATTEMPTS = 10;
+/** Unverified accounts older than this may be deleted to free username/email. */
+const UNVERIFIED_ACCOUNT_TTL_MS = 24 * 60 * 60 * 1_000;
 const SCRYPT_PARAMETERS = { N: 16_384, r: 8, p: 1, maxmem: 64 * 1_024 * 1_024 };
 
 export interface CreatedSession {
@@ -34,15 +42,23 @@ export interface CreatedSession {
   user: CurrentUser;
 }
 
+export interface AuthMailContext {
+  clientIp: string;
+}
+
 export interface AuthServiceOptions {
   ses?: SesClient;
   settings?: SystemSettingsService;
+  emailSendLimiter?: EmailSendLimiter;
+  turnstile?: TurnstileClient;
   now?: () => Date;
 }
 
 export class AuthService {
   private readonly ses: SesClient;
   private readonly settings: SystemSettingsService;
+  private readonly emailSendLimiter: EmailSendLimiter;
+  private readonly turnstile: TurnstileClient;
   private readonly now: () => Date;
 
   constructor(
@@ -51,12 +67,23 @@ export class AuthService {
   ) {
     this.ses = options.ses ?? createTencentSesClient();
     this.settings = options.settings ?? new SystemSettingsService(db);
+    this.emailSendLimiter =
+      options.emailSendLimiter ?? new NoopEmailSendLimiter();
+    this.turnstile = options.turnstile ?? createTurnstileClient();
     this.now = options.now ?? (() => new Date());
   }
 
-  async register(input: RegisterInput): Promise<CurrentUser> {
+  async register(
+    input: RegisterInput,
+    context: AuthMailContext,
+  ): Promise<CurrentUser> {
     const mailConfig = await this.settings.getRawForMail();
     assertSesConfigured(mailConfig, "邮件服务尚未配置，暂时无法注册");
+    await this.enforceEmailSendGate(
+      context.clientIp,
+      input.turnstileToken,
+      mailConfig,
+    );
 
     let parsed;
     try {
@@ -70,6 +97,11 @@ export class AuthService {
       }
       throw error;
     }
+
+    await this.reclaimStaleUnverifiedConflicts(
+      input.username,
+      parsed.emailNormalized,
+    );
 
     const passwordHash = await hashPassword(input.password);
     const verifyCode = generateVerificationCode();
@@ -134,10 +166,11 @@ export class AuthService {
       );
     }
 
+    await this.emailSendLimiter.recordSuccessfulSend(context.clientIp);
     return serializeUser(user);
   }
 
-  async verifyEmail(input: VerifyEmailInput): Promise<CurrentUser> {
+  async verifyEmail(input: VerifyEmailInput): Promise<VerifyEmailResponse> {
     const user = await this.db.user.findUnique({
       where: { username: input.username },
       include: { emailVerification: true },
@@ -146,7 +179,8 @@ export class AuthService {
       throw new HttpError(404, "用户不存在", "USER_NOT_FOUND");
     }
     if (user.emailVerifiedAt !== null) {
-      return serializeUser(user);
+      // Do not return CurrentUser to unauthenticated callers.
+      return { ok: true };
     }
     const challenge = user.emailVerification;
     if (challenge === null) {
@@ -187,14 +221,20 @@ export class AuthService {
       await tx.emailVerification.delete({ where: { userId: user.id } });
       return next;
     });
-    return serializeUser(updated);
+    return { user: serializeUser(updated) };
   }
 
   async resendVerification(
     input: ResendVerificationInput,
+    context: AuthMailContext,
   ): Promise<{ ok: true }> {
     const mailConfig = await this.settings.getRawForMail();
     assertSesConfigured(mailConfig, "邮件服务尚未配置，暂时无法发送验证码");
+    await this.enforceEmailSendGate(
+      context.clientIp,
+      input.turnstileToken,
+      mailConfig,
+    );
 
     const user = await this.db.user.findUnique({
       where: { username: input.username },
@@ -224,23 +264,6 @@ export class AuthService {
     const sentAt = this.now();
     const expiresAt = new Date(sentAt.getTime() + VERIFICATION_CODE_TTL_MS);
 
-    await this.db.emailVerification.upsert({
-      where: { userId: user.id },
-      create: {
-        userId: user.id,
-        codeHash,
-        expiresAt,
-        sentAt,
-        attemptCount: 0,
-      },
-      update: {
-        codeHash,
-        expiresAt,
-        sentAt,
-        attemptCount: 0,
-      },
-    });
-
     try {
       await this.ses.sendVerificationEmail({
         secretId: mailConfig.secretId,
@@ -259,6 +282,26 @@ export class AuthService {
       );
     }
 
+    // Persist the new challenge only after SES succeeds so a failed send
+    // keeps the previous code and does not start a cooldown window.
+    await this.db.emailVerification.upsert({
+      where: { userId: user.id },
+      create: {
+        userId: user.id,
+        codeHash,
+        expiresAt,
+        sentAt,
+        attemptCount: 0,
+      },
+      update: {
+        codeHash,
+        expiresAt,
+        sentAt,
+        attemptCount: 0,
+      },
+    });
+
+    await this.emailSendLimiter.recordSuccessfulSend(context.clientIp);
     return { ok: true };
   }
 
@@ -367,6 +410,71 @@ export class AuthService {
       return updated;
     });
     return serializeAdminUser(user);
+  }
+
+  private async enforceEmailSendGate(
+    clientIp: string,
+    turnstileToken: string | undefined,
+    mailConfig: { turnstileSiteKey: string; turnstileSecretKey: string },
+  ): Promise<void> {
+    const gate = await this.emailSendLimiter.check(clientIp);
+    if (gate.action === "block") {
+      throw new HttpError(
+        429,
+        "该网络发信次数过多，请稍后再试",
+        "EMAIL_SEND_IP_BLOCKED",
+      );
+    }
+    if (gate.action === "require_turnstile") {
+      if (
+        mailConfig.turnstileSiteKey.length === 0 ||
+        mailConfig.turnstileSecretKey.length === 0
+      ) {
+        throw new HttpError(
+          503,
+          "人机验证尚未配置，暂时无法继续发送验证邮件",
+          "TURNSTILE_NOT_CONFIGURED",
+        );
+      }
+      if (turnstileToken === undefined || turnstileToken.length === 0) {
+        throw new HttpError(
+          429,
+          "请完成人机验证后再发送验证邮件",
+          "TURNSTILE_REQUIRED",
+        );
+      }
+      const ok = await this.turnstile.verify({
+        secretKey: mailConfig.turnstileSecretKey,
+        token: turnstileToken,
+        remoteIp: clientIp,
+      });
+      if (!ok) {
+        throw new HttpError(400, "人机验证失败，请重试", "TURNSTILE_FAILED");
+      }
+    }
+  }
+
+  /**
+   * If an unverified account has held the username or email for longer than
+   * UNVERIFIED_ACCOUNT_TTL_MS, delete it (cascades sessions + verification).
+   */
+  private async reclaimStaleUnverifiedConflicts(
+    username: string,
+    emailNormalized: string,
+  ): Promise<void> {
+    const cutoff = new Date(this.now().getTime() - UNVERIFIED_ACCOUNT_TTL_MS);
+    const stale = await this.db.user.findMany({
+      where: {
+        emailVerifiedAt: null,
+        createdAt: { lt: cutoff },
+        OR: [{ username }, { emailNormalized }],
+      },
+      select: { id: true },
+    });
+    if (stale.length === 0) return;
+    await this.db.user.deleteMany({
+      where: { id: { in: stale.map((row) => row.id) } },
+    });
   }
 }
 

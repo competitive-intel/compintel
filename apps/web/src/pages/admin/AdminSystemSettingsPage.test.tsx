@@ -21,19 +21,21 @@ afterEach(() => vi.clearAllMocks());
 describe("AdminSystemSettingsPage", () => {
   it("loads and saves system settings", async () => {
     vi.mocked(getSystemSettings).mockResolvedValue({
-      tencentSesSecretId: "aki",
-      tencentSesSecretKeyConfigured: true,
+      tencentSesCredentialsConfigured: true,
       tencentSesFromAddress: "noreply@mail.example.com",
       tencentSesTemplateId: 121332,
-      allowedEmailProviders: ["gmail", "qq"],
+      allowedEmailProviders: ["gmail.com", "qq.com"],
+      turnstileSiteKey: "",
+      turnstileSecretKeyConfigured: false,
       updatedAt: "2026-07-15T08:00:00.000Z",
     });
     vi.mocked(updateSystemSettings).mockResolvedValue({
-      tencentSesSecretId: "aki-2",
-      tencentSesSecretKeyConfigured: true,
+      tencentSesCredentialsConfigured: true,
       tencentSesFromAddress: "noreply@mail.example.com",
       tencentSesTemplateId: 121332,
-      allowedEmailProviders: ["gmail", "163"],
+      allowedEmailProviders: ["gmail.com", "163.com"],
+      turnstileSiteKey: "1x00000000000000000000AA",
+      turnstileSecretKeyConfigured: true,
       updatedAt: "2026-07-15T09:00:00.000Z",
     });
 
@@ -42,38 +44,71 @@ describe("AdminSystemSettingsPage", () => {
     expect(
       await screen.findByDisplayValue("noreply@mail.example.com"),
     ).toBeInTheDocument();
-    expect(screen.getByLabelText("腾讯云 SES SecretKey（SK）")).toHaveAttribute(
-      "placeholder",
-      "已配置（留空不修改）",
-    );
+    expect(
+      screen.getByText(
+        /已通过环境变量 TENCENT_SES_SECRET_ID \/ TENCENT_SES_SECRET_KEY 配置/,
+      ),
+    ).toBeInTheDocument();
     expect(screen.getByText("腾讯云邮件推送")).toBeInTheDocument();
-    expect(screen.getByText("gmail")).toBeInTheDocument();
-    expect(screen.getByText("qq")).toBeInTheDocument();
+    expect(screen.getByText("Cloudflare Turnstile")).toBeInTheDocument();
+    expect(screen.getByText("gmail.com")).toBeInTheDocument();
+    expect(screen.getByText("qq.com")).toBeInTheDocument();
 
-    const secretId = screen.getByLabelText("腾讯云 SES SecretId（AK）");
-    await userEvent.clear(secretId);
-    await userEvent.type(secretId, "aki-2");
+    const siteKey = screen.getByLabelText("Turnstile Site Key");
+    await userEvent.type(siteKey, "1x00000000000000000000AA");
+    const turnstileSecret = screen.getByLabelText("Turnstile Secret Key");
+    await userEvent.type(turnstileSecret, "1x0000000000000000000000000000000AA");
 
     const qqChip = screen
-      .getByText("qq")
+      .getByText("qq.com")
       .closest('[data-slot="combobox-chip"]') as HTMLElement | null;
     expect(qqChip).not.toBeNull();
     await userEvent.click(within(qqChip!).getByRole("button"));
-    await userEvent.click(screen.getByPlaceholderText("选择邮箱提供商…"));
-    await userEvent.click(await screen.findByRole("option", { name: "163" }));
+    await userEvent.click(screen.getByPlaceholderText("选择邮箱域名…"));
+    await userEvent.click(
+      await screen.findByRole("option", { name: "163.com" }),
+    );
     await userEvent.keyboard("{Escape}");
 
     await userEvent.click(screen.getByRole("button", { name: "保存设置" }));
 
     await waitFor(() =>
       expect(updateSystemSettings).toHaveBeenCalledWith({
-        tencentSesSecretId: "aki-2",
         tencentSesFromAddress: "noreply@mail.example.com",
         tencentSesTemplateId: 121332,
-        allowedEmailProviders: ["gmail", "163"],
+        allowedEmailProviders: ["gmail.com", "163.com"],
+        turnstileSiteKey: "1x00000000000000000000AA",
+        turnstileSecretKey: "1x0000000000000000000000000000000AA",
       }),
     );
     expect(await screen.findByText("系统设置已保存。")).toBeInTheDocument();
+  });
+
+  it("rejects malformed SES template IDs", async () => {
+    vi.mocked(getSystemSettings).mockResolvedValue({
+      tencentSesCredentialsConfigured: true,
+      tencentSesFromAddress: "noreply@mail.example.com",
+      tencentSesTemplateId: 121332,
+      allowedEmailProviders: ["gmail.com"],
+      turnstileSiteKey: "",
+      turnstileSecretKeyConfigured: false,
+      updatedAt: "2026-07-15T08:00:00.000Z",
+    });
+
+    renderWithProviders(<AdminSystemSettingsPage />);
+
+    const templateId = await screen.findByLabelText("腾讯云 SES 模板 ID");
+    for (const value of ["123abc", "12.5", "0", "-1", "  "]) {
+      await userEvent.clear(templateId);
+      if (value.trim().length > 0) {
+        await userEvent.type(templateId, value);
+      }
+      await userEvent.click(screen.getByRole("button", { name: "保存设置" }));
+      expect(
+        await screen.findByText("请输入有效的 SES 模板 ID"),
+      ).toBeInTheDocument();
+      expect(updateSystemSettings).not.toHaveBeenCalled();
+    }
   });
 
   it("renders load failures", async () => {

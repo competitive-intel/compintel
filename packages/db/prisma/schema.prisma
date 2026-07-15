@@ -97,11 +97,11 @@ model EmailVerification {
 
 model SystemSettings {
   id                    String   @id @default("default")
-  tencentSesSecretId    String   @default("")
-  tencentSesSecretKey   String   @default("")
   tencentSesFromAddress String   @default("")
   tencentSesTemplateId  Int      @default(121332)
-  allowedEmailProviders String[] @default(["gmail", "qq", "163", "126"])
+  allowedEmailProviders String[] @default(["gmail.com", "qq.com", "163.com", "126.com"])
+  turnstileSiteKey      String   @default("")
+  turnstileSecretKey    String   @default("")
   updatedAt             DateTime @updatedAt
   updatedById           String?
   updatedBy             User?    @relation("SettingsUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)

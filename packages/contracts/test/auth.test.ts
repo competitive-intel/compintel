@@ -60,7 +60,13 @@ test("system settings update requires at least one field", () => {
   assert.equal(updateSystemSettingsSchema.safeParse({}).success, false);
   assert.equal(
     updateSystemSettingsSchema.safeParse({
-      allowedEmailProviders: ["gmail", "qq"],
+      allowedEmailProviders: ["gmail.com", "qq.com"],
+    }).success,
+    true,
+  );
+  assert.equal(
+    updateSystemSettingsSchema.safeParse({
+      turnstileSiteKey: "site-key",
     }).success,
     true,
   );
