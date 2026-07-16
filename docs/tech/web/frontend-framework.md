@@ -72,6 +72,8 @@ C++ 源码输入统一使用 Monaco Editor，编辑器核心按需加载；`@shi
 
 `src/lib/theme.tsx` 提供全局浅色/暗色主题状态。默认主题为浅色，用户切换后将偏好保存到浏览器 `localStorage`，暗色模式通过根元素的 `.dark` 类和同一组语义 token 生效。认证布局和登录后的应用布局均提供主题切换入口。
 
+认证布局和登录后的应用布局共用 `AppFooter`：页脚依次展示项目名、构建对应的 Git commit 短 ID 和“开源”入口；commit ID 链接到 GitHub 上的对应提交，“开源”链接到项目仓库。`vite.config.ts` 在构建时使用 `simple-git` 读取当前仓库的 `HEAD`；构建环境不含 Git 元数据时依次回退到 `COMPINTEL_GIT_COMMIT`、`GITHUB_SHA`、`CI_COMMIT_SHA`，仍不可用时显示 `unknown`。
+
 `components.json` 固定 shadcn/ui 的 `new-york`、Radix 和 Lucide 配置。`components/ui` 按“组件源码归属应用”方式维护 Button、Input、InputGroup、Textarea、Field、Switch、Card、Collapsible、Badge、Alert、Empty、Skeleton、Separator、Table、Breadcrumb、Dropdown Menu 和 Tooltip 等基础组件。游戏详情与评测页面使用 Breadcrumb 表达页面层级，不再保留重复的返回入口。业务页面优先组合这些原生组件，并分别呈现加载、空数据、错误、进行中和成功状态。
 
 生产环境默认请求同源的 `/api` 前缀（与 [DEPLOY.md](../../../DEPLOY.md) 中 Cloudflare → Caddy 将 `/api` 反代到 API 的约定一致）；如果部署拓扑不同，可以在构建时设置公开变量：
