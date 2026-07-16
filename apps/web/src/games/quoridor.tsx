@@ -65,7 +65,9 @@ export function QuoridorReplayBoard({ replay }: { replay: QuoridorReplay }) {
       <dl className="grid gap-3 text-sm sm:grid-cols-3">
         <ReplayFact
           label="你的席位"
-          value={replay.userSeat === 0 ? "先手（向下）" : "后手（向上）"}
+          value={
+            replay.userSeat === 0 ? "红方（先手，向下）" : "蓝方（后手，向上）"
+          }
         />
         <ReplayFact label="总步数" value={String(totalMoves)} />
         <ReplayFact label="规则结果" value={replayResultText(replay)} />
@@ -73,7 +75,7 @@ export function QuoridorReplayBoard({ replay }: { replay: QuoridorReplay }) {
 
       <div className="mx-auto w-full max-w-2xl">
         <div
-          className="grid aspect-square w-full rounded-md border bg-muted p-3 sm:p-5"
+          className="relative grid aspect-square w-full overflow-hidden rounded-md border bg-muted p-3 sm:p-5"
           style={{
             gridTemplateColumns:
               "repeat(8, minmax(0, 1fr) 0.4rem) minmax(0, 1fr)",
@@ -102,15 +104,12 @@ export function QuoridorReplayBoard({ replay }: { replay: QuoridorReplay }) {
                 {pawnSeat >= 0 && (
                   <span
                     className={cn(
-                      "grid size-[82%] place-items-center rounded-full text-[clamp(1rem,5vw,2.75rem)] leading-none shadow-sm",
-                      pawnSeat === 0
-                        ? "border bg-background text-foreground"
-                        : "bg-foreground text-background",
+                      "size-[72%] max-h-full max-w-full rounded-full border-2 border-background shadow-sm ring-1 ring-foreground/15",
+                      pawnSeat === 0 ? "bg-player-red" : "bg-player-blue",
                     )}
-                    title={`${pawnSeat === 0 ? "先手" : "后手"}棋子：(${x}, ${y})`}
-                  >
-                    ♟
-                  </span>
+                    title={`${pawnSeat === 0 ? "红方（先手）" : "蓝方（后手）"}棋子：(${x}, ${y})`}
+                    data-pawn-seat={pawnSeat}
+                  />
                 )}
               </span>
             );
@@ -118,7 +117,10 @@ export function QuoridorReplayBoard({ replay }: { replay: QuoridorReplay }) {
           {walls.map((wall, index) => (
             <span
               key={`${wall.x}:${wall.y}:${wall.orientation}`}
-              className="rounded-full bg-primary shadow-sm"
+              className={cn(
+                "rounded-full shadow-sm ring-1 ring-foreground/15",
+                wall.seat === 0 ? "bg-player-red" : "bg-player-blue",
+              )}
               style={
                 wall.orientation === 0
                   ? {
@@ -130,10 +132,28 @@ export function QuoridorReplayBoard({ replay }: { replay: QuoridorReplay }) {
                       gridRow: wall.y * 2,
                     }
               }
-              title={`第 ${visibleMoves.indexOf(wall) + 1} 步：${wall.orientation === 0 ? "竖墙" : "横墙"} (${wall.x}, ${wall.y})`}
+              title={`第 ${visibleMoves.indexOf(wall) + 1} 步：${wall.seat === 0 ? "红方" : "蓝方"}${wall.orientation === 0 ? "竖墙" : "横墙"} (${wall.x}, ${wall.y})`}
               data-wall={index}
+              data-wall-seat={wall.seat}
             />
           ))}
+          {visibleMoveCount === totalMoves && replay.result.type === "win" && (
+            <div
+              className="pointer-events-none absolute inset-0 grid place-items-center bg-background/15 backdrop-blur-[3px]"
+              data-game-result-overlay
+            >
+              <span
+                className={cn(
+                  "text-xl drop-shadow-md sm:text-3xl",
+                  replay.result.winner === 0
+                    ? "text-player-red"
+                    : "text-player-blue",
+                )}
+              >
+                {replay.result.winner === 0 ? "红方获胜" : "蓝方获胜"}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -212,7 +232,7 @@ function ReplayFact({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex min-w-0 flex-col gap-1">
       <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="break-words font-medium">{value}</dd>
+      <dd className="wrap-break-word font-medium">{value}</dd>
     </div>
   );
 }
