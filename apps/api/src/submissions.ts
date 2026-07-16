@@ -143,7 +143,7 @@ export class SubmissionService {
           removeOnFail: 1_000,
         },
       );
-    } catch (error) {
+    } catch {
       await updateEvaluationAndScore(this.db, evaluationId, {
         status: "FINISHED",
         verdict: "INTERNAL_ERROR",
