@@ -79,14 +79,21 @@ const shutdown = async (reason: string): Promise<void> => {
   if (shuttingDown) return;
   shuttingDown = true;
   logger.info({ event: "api.shutting_down", reason }, "api shutting down");
+  const failures: unknown[] = [];
+  try {
+    await app.close();
+  } catch (error) {
+    failures.push(error);
+  }
   const results = await Promise.allSettled([
-    app.close(),
     queue.close(),
     redis.quit(),
     db.$disconnect(),
   ]);
-  const failures = results.flatMap((result) =>
-    result.status === "rejected" ? [result.reason] : [],
+  failures.push(
+    ...results.flatMap((result) =>
+      result.status === "rejected" ? [result.reason] : [],
+    ),
   );
   if (failures.length === 0) {
     logger.info({ event: "api.stopped" }, "api stopped");
