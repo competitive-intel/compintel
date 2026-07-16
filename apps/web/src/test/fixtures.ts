@@ -17,8 +17,9 @@ export function userFixture(overrides: Partial<CurrentUser> = {}): CurrentUser {
     id: "user-1",
     username: "member",
     displayName: "参赛者",
+    email: "member@gmail.com",
+    emailVerified: true,
     role: "USER",
-    approvalStatus: "APPROVED",
     createdAt,
     ...overrides,
   };
@@ -29,8 +30,7 @@ export function adminUserFixture(
 ): AdminUser {
   return {
     ...userFixture(),
-    reviewedAt: null,
-    reviewedBy: null,
+    submissionCount: 0,
     ...overrides,
   };
 }

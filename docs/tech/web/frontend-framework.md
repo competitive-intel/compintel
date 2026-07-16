@@ -1,6 +1,6 @@
 # Web 前端框架
 
-`apps/web` 是 CompIntel 的 React 单页应用，使用 Vite、TypeScript、shadcn/ui 组件组织方式和 Tailwind CSS v4 构建。当前包含身份验证、游戏目录与详情、通用程序提交、公开评测记录与详情、游戏管理和用户审核页面。
+`apps/web` 是 CompIntel 的 React 单页应用，使用 Vite、TypeScript、shadcn/ui 组件组织方式和 Tailwind CSS v4 构建。当前包含身份验证、邮箱验证、游戏目录与详情、通用程序提交、公开评测记录与详情、游戏管理、用户管理和系统设置页面。
 
 ## 本地运行
 
@@ -28,8 +28,8 @@ apps/web/
 │   ├── games/          # 按游戏拆分的回放 UI、测试与 fixture
 │   ├── lib/            # API 客户端、认证与主题状态
 │   ├── pages/          # 按功能域组织的路由页面
-│   │   ├── admin/      # 游戏管理与用户审核
-│   │   ├── auth/       # 登录、注册与等待审核
+│   │   ├── admin/      # 游戏管理、用户管理与系统设置
+│   │   ├── auth/       # 登录、注册与邮箱验证
 │   │   ├── games/      # 游戏目录与详情
 │   │   └── submissions/ # 评测记录与详情
 │   ├── test/           # 测试环境初始化
@@ -45,14 +45,15 @@ apps/web/
 
 当前页面为：
 
-- `/login`、`/register`、`/pending`：登录、提交注册申请和等待审核提示。
+- `/login`、`/register`、`/verify-email`：登录、注册与邮箱验证。注册与重发验证码在触发 per-IP 限流后会拉取 `GET /v1/auth/captcha-config` 并展示 Cloudflare Turnstile（`TurnstileWidget`）。验证成功后跳转登录页。
 - `/`：登录后重定向到 `/games`。
 - `/games`：读取已发布游戏，并以纵向列表显示平台游戏目录。
-- `/games/:gameSlug`：以 Badge 显示每步 CPU、整局 CPU 与内存限制，以扁平排版显示合并后的规则与通信协议 Markdown，并在同一页通过 Monaco Editor 提交 C++ 程序。Player 名称使用 shadcn Combobox 自动补全当前用户在该游戏中用过的名称；选择已有名称会由 API 创建下一版本，输入新名称则创建版本 1。提交成功后直接跳转到该版本的评测详情页，不在当前页停留显示成功提示。详情页不单独展示“游戏介绍”区块；Markdown 和提交表单不额外使用 Card 包裹，页面不包含任何写死的具体游戏规则或代码模板。
+- `/games/:gameSlug`：以 Badge 显示每步 CPU、整局 CPU 与内存限制，以扁平排版显示合并后的规则与通信协议 Markdown，并在同一页通过 Monaco Editor 提交 C++ 程序。Player 名称使用 shadcn Combobox 自动补全当前用户在该游戏中用过的名称；选择已有名称会由 API 创建下一版本，输入新名称则创建版本 1。提交成功后直接跳转到该版本的评测详情页，不在当前页停留显示成功提示。详情页不单独展示“游戏介绍”区块；Markdown 和提交表单不额外使用 Card 包裹，页面不包含任何写死的具体游戏规则或代码模板。每个游戏在 24 小时滑动窗口内最多提交 50 次。
 - `/games/:gameSlug/submissions`：分页显示游戏下的全部公开提交版本、聚合评测进度、击败对手数量和最终整数分数；存在未完成任务时每 5 秒刷新。
 - `/submissions/:submissionId`：显示不可变版本的公开源码、作者、最终分数、各平台对手权重、是否击败、verdict、资源摘要、日志和已有回放；源码使用 Shiki 静态高亮展示，不额外套 Card。每个对手的评测结果默认展开并可独立折叠；五子棋与路墙棋回放按 `gameSlug` 选择棋盘，初始显示终局，支持回到开局、逐步前后移动、跳到终局和自动播放。路墙棋回放同时重建双方棋子和横竖墙。评测完成前每 3 秒刷新。
 - `/admin/games`：管理员编辑源代码中已安装的游戏目录、CPU 与内存限制、发布状态，并添加、停用、调整评分权重或创建内置 C++ 程序的新版本。资源限制使用 InputGroup 在输入框尾部显示单位；页面不提供新增游戏入口。
-- `/admin/users`：管理员查看所有用户，并批准或拒绝注册申请。
+- `/admin/users`：管理员查看所有用户的用户名、显示名、邮箱与总提交次数，并可封禁或解封普通用户。
+- `/admin/settings`：管理员配置腾讯云 SES 发件地址、`tencentSesTemplateId`（模板 ID）、允许的邮箱提供商域名（完整注册域），以及 Cloudflare Turnstile Site Key；Turnstile Secret Key 可由管理员编辑，但读取或展示时永不回显。腾讯云 SES API 凭证（`TENCENT_SES_SECRET_ID` / `TENCENT_SES_SECRET_KEY`）仅通过环境变量配置，页面不提供编辑表单；未配置时以红色警告提示无法发信，已配置时不展示 SES 凭证相关提示。
 
 业务路由由 `ProtectedRoute` 统一检查登录状态，管理员路由再检查角色。API 请求统一通过 Axios 实例发送，并设置 `withCredentials: true` 携带 HttpOnly 会话 Cookie；浏览器代码不读取或保存会话令牌。TanStack Query 的 AbortSignal 会传入 Axios，页面卸载或查询失效时可取消请求。
 
@@ -76,7 +77,7 @@ C++ 源码输入统一使用 Monaco Editor，编辑器核心按需加载；`@shi
 
 `components.json` 固定 shadcn/ui 的 `new-york`、Radix 和 Lucide 配置。`components/ui` 按“组件源码归属应用”方式维护 Button、Input、InputGroup、Textarea、Field、Switch、Card、Collapsible、Badge、Alert、Empty、Skeleton、Separator、Table、Breadcrumb、Dropdown Menu 和 Tooltip 等基础组件。游戏详情与评测页面使用 Breadcrumb 表达页面层级，不再保留重复的返回入口。业务页面优先组合这些原生组件，并分别呈现加载、空数据、错误、进行中和成功状态。
 
-生产环境默认请求同源的 `/api` 前缀；如果部署拓扑不同，可以在构建时设置公开变量：
+生产环境默认请求同源的 `/api` 前缀（与 [DEPLOY.md](../../../DEPLOY.md) 中 Cloudflare → Caddy 将 `/api` 反代到 API 的约定一致）；如果部署拓扑不同，可以在构建时设置公开变量：
 
 ```bash
 VITE_API_BASE_URL=https://example.com/api pnpm --filter @compintel/web build
@@ -96,4 +97,4 @@ pnpm --filter @compintel/web build
 
 当前单元测试聚焦纯前端渲染与组件交互，包括加载、空数据、错误、成功、进行中等状态，表单反馈，评测 verdict 与资源格式化，棋盘回放，以及管理员编辑状态。顶层路由编排、路由守卫和页面跳转不在该单元测试范围内。
 
-仓库尚未建立覆盖注册、审核、平台 Player 配置、提交和真实沙箱评测全链路的完整 Playwright E2E。
+仓库尚未建立覆盖注册、邮箱验证、平台 Player 配置、提交和真实沙箱评测全链路的完整 Playwright E2E。

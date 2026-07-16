@@ -48,5 +48,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Run ESLint
+        run: pnpm lint
+
       - name: Run all workspace tests
         run: pnpm test

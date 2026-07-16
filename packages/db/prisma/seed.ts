@@ -11,6 +11,7 @@ if (databaseUrl === undefined) {
 const db = createDbClient(databaseUrl);
 
 try {
+  await ensureSystemSettings();
   await ensureAdministrator();
   for (const { slug, catalog } of GAME_CATALOGS) {
     await db.game.upsert({
@@ -23,6 +24,17 @@ try {
   await db.$disconnect();
 }
 
+async function ensureSystemSettings(): Promise<void> {
+  await db.systemSettings.upsert({
+    where: { id: "default" },
+    update: {},
+    create: {
+      id: "default",
+      allowedEmailProviders: ["gmail.com", "qq.com", "163.com", "126.com"],
+    },
+  });
+}
+
 async function ensureAdministrator(): Promise<void> {
   const password = process.env.ADMIN_PASSWORD;
   if (password === undefined || password === "") {
@@ -32,20 +44,25 @@ async function ensureAdministrator(): Promise<void> {
   const username = (process.env.ADMIN_USERNAME ?? "admin").toLowerCase();
   const displayName = process.env.ADMIN_DISPLAY_NAME ?? "平台管理员";
   const passwordHash = hashPassword(password);
+  const email = `${username}@compintel.local`;
   await db.user.upsert({
     where: { username },
     update: {
       displayName,
       passwordHash,
       role: "ADMIN",
-      approvalStatus: "APPROVED",
+      email,
+      emailNormalized: email,
+      emailVerifiedAt: new Date(),
     },
     create: {
       username,
       displayName,
       passwordHash,
       role: "ADMIN",
-      approvalStatus: "APPROVED",
+      email,
+      emailNormalized: email,
+      emailVerifiedAt: new Date(),
     },
   });
 }

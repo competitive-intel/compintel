@@ -15,8 +15,8 @@ afterEach(() => vi.clearAllMocks());
 
 describe("LoginPage", () => {
   it.each([
-    ["ACCOUNT_PENDING", "账号正在等待管理员审核"],
-    ["ACCOUNT_REJECTED", "账号申请未通过审核"],
+    ["EMAIL_UNVERIFIED", "请先完成邮箱验证后再登录"],
+    ["ACCOUNT_BANNED", "账号已被封禁"],
   ])("renders the %s account state", async (code, message) => {
     vi.mocked(login).mockRejectedValue(new ApiError("登录失败", 403, code));
     renderWithProviders(<LoginPage />);

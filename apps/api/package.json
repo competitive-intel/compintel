@@ -22,6 +22,7 @@
     "fastify-type-provider-zod": "^7.0.0",
     "ioredis": "^5.11.1",
     "pino": "^10.3.1",
+    "tencentcloud-sdk-nodejs-ses": "^4.1.266",
     "zod": "^4.4.3"
   }
 }

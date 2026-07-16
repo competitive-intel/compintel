@@ -4,17 +4,17 @@
 
 ## 部署
 
-- [手动部署指南](../DEPLOY.md)：生产主机准备、环境变量、基础设施、迁移、应用启动、反向代理、升级、备份和排障。
+- [手动部署指南](../DEPLOY.md)：生产主机准备、环境变量、基础设施、迁移、应用启动、Cloudflare + Caddy 反向代理、升级、备份和排障。
 
 ## API
 
-- [身份验证与用户审核 API](api/authentication.md)：注册、登录、会话、退出及管理员审核接口。
+- [身份验证与用户管理 API](api/authentication.md)：注册、登录、会话、退出及管理员封禁/解封接口。
 - [游戏目录 API](api/games.md)：已发布游戏列表、游戏详情、管理员编辑/发布以及平台 C++ Player 管理接口。
 - [Player 提交与评测 API](api/player-evaluations.md)：提交 Player/版本、按游戏分页查看公开记录，以及源码与平台对手评测详情。
 
 ## 后端技术
 
-- [身份验证实现](tech/backend/authentication.md)：账号审核状态、密码摘要、服务端会话和授权边界。
+- [身份验证实现](tech/backend/authentication.md)：邮箱验证、封禁、密码摘要、服务端会话和授权边界。
 - [游戏目录实现](tech/backend/game-catalog.md)：游戏元数据、草稿与发布边界及稳定 slug 约束。
 - [Player 评测实现](tech/backend/player-evaluation.md)：数据模型、异步执行流程、沙箱边界与当前 MVP 限制。
 - [内置 Player 实现](tech/backend/builtin-players.md)：平台 Player 的版本、注册、执行与升级约束。

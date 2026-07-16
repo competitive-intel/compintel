@@ -2,7 +2,7 @@ import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError, getAdminUsers, reviewUser } from "../../lib/api";
+import { ApiError, banUser, getAdminUsers, unbanUser } from "../../lib/api";
 import { adminUserFixture } from "../../test/fixtures";
 import { renderWithProviders } from "../../test/render";
 import { AdminUsersPage } from "./AdminUsersPage";
@@ -10,7 +10,8 @@ import { AdminUsersPage } from "./AdminUsersPage";
 vi.mock("../../lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../lib/api")>()),
   getAdminUsers: vi.fn(),
-  reviewUser: vi.fn(),
+  banUser: vi.fn(),
+  unbanUser: vi.fn(),
 }));
 
 afterEach(() => vi.clearAllMocks());
@@ -36,62 +37,134 @@ describe("AdminUsersPage", () => {
     expect(await screen.findByText("用户列表不可用")).toBeInTheDocument();
   });
 
-  it("renders roles, approval states, and pending count", async () => {
+  it("renders roles, submission counts, and banned count", async () => {
     vi.mocked(getAdminUsers).mockResolvedValue([
-      adminUserFixture({ id: "admin", role: "ADMIN", displayName: "管理员" }),
-      adminUserFixture({ id: "pending", approvalStatus: "PENDING" }),
-      adminUserFixture({ id: "approved", approvalStatus: "APPROVED" }),
-      adminUserFixture({ id: "rejected", approvalStatus: "REJECTED" }),
+      adminUserFixture({
+        id: "admin",
+        role: "ADMIN",
+        displayName: "管理员",
+        submissionCount: 0,
+      }),
+      adminUserFixture({
+        id: "member",
+        displayName: "普通用户",
+        submissionCount: 12,
+      }),
+      adminUserFixture({
+        id: "banned",
+        role: "BANNED",
+        displayName: "封禁用户",
+        submissionCount: 3,
+      }),
     ]);
     renderPage();
 
-    expect(await screen.findByText("1 个待审核")).toBeInTheDocument();
+    expect(await screen.findByText("1 个已封禁")).toBeInTheDocument();
     expect(screen.getAllByText("管理员")).toHaveLength(2);
-    expect(screen.getByText("待审核")).toBeInTheDocument();
-    expect(screen.getAllByText("已通过")).toHaveLength(2);
-    expect(screen.getByText("已拒绝")).toBeInTheDocument();
+    expect(screen.getByText("已封禁")).toBeInTheDocument();
+    expect(screen.getByText("12")).toBeInTheDocument();
+    expect(screen.getByText("3")).toBeInTheDocument();
   });
 
-  it.each([
-    ["通过", "APPROVE", "APPROVED", "已通过"],
-    ["拒绝", "REJECT", "REJECTED", "已拒绝"],
-  ] as const)(
-    "handles the %s action",
-    async (button, decision, status, label) => {
-      const pending = adminUserFixture({
-        id: "candidate",
-        displayName: "待审核用户",
-        approvalStatus: "PENDING",
-      });
-      vi.mocked(getAdminUsers).mockResolvedValue([pending]);
-      vi.mocked(reviewUser).mockResolvedValue({
-        ...pending,
-        approvalStatus: status,
-      });
-      renderPage();
+  it("bans a user", async () => {
+    const member = adminUserFixture({
+      id: "candidate",
+      displayName: "普通用户",
+      submissionCount: 1,
+    });
+    vi.mocked(getAdminUsers).mockResolvedValue([member]);
+    vi.mocked(banUser).mockResolvedValue({
+      ...member,
+      role: "BANNED",
+    });
+    renderPage();
 
-      const row = (await screen.findByText("待审核用户")).closest("article");
-      expect(row).not.toBeNull();
-      await userEvent.click(within(row!).getByRole("button", { name: button }));
+    const row = (await screen.findByText("普通用户")).closest("tr");
+    expect(row).not.toBeNull();
+    await userEvent.click(within(row!).getByRole("button", { name: "封禁" }));
 
-      expect(reviewUser).toHaveBeenCalledWith("candidate", { decision });
-      expect(await within(row!).findByText(label)).toBeInTheDocument();
-    },
-  );
+    expect(banUser).toHaveBeenCalledWith("candidate");
+    expect(await within(row!).findByText("已封禁")).toBeInTheDocument();
+  });
 
-  it("renders review failures", async () => {
+  it("unbans a user", async () => {
+    const banned = adminUserFixture({
+      id: "candidate",
+      role: "BANNED",
+      displayName: "封禁用户",
+      submissionCount: 1,
+    });
+    vi.mocked(getAdminUsers).mockResolvedValue([banned]);
+    vi.mocked(unbanUser).mockResolvedValue({
+      ...banned,
+      role: "USER",
+    });
+    renderPage();
+
+    const row = (await screen.findByText("封禁用户")).closest("tr");
+    expect(row).not.toBeNull();
+    await userEvent.click(within(row!).getByRole("button", { name: "解封" }));
+
+    expect(unbanUser).toHaveBeenCalledWith("candidate");
+    expect(await within(row!).findByText("用户")).toBeInTheDocument();
+  });
+
+  it("renders ban failures", async () => {
     vi.mocked(getAdminUsers).mockResolvedValue([
-      adminUserFixture({ id: "candidate", approvalStatus: "PENDING" }),
+      adminUserFixture({ id: "candidate", displayName: "普通用户" }),
     ]);
-    vi.mocked(reviewUser).mockRejectedValue(
-      new ApiError("审核状态已变化", 409, null),
+    vi.mocked(banUser).mockRejectedValue(
+      new ApiError("不能封禁管理员账号", 400, "CANNOT_BAN_ADMIN"),
     );
     renderPage();
 
-    await userEvent.click(await screen.findByRole("button", { name: "通过" }));
+    await userEvent.click(await screen.findByRole("button", { name: "封禁" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "审核状态已变化",
+      "不能封禁管理员账号",
     );
+  });
+
+  it("clears a prior ban error after a successful unban", async () => {
+    const member = adminUserFixture({
+      id: "member",
+      displayName: "普通用户",
+    });
+    const banned = adminUserFixture({
+      id: "banned",
+      role: "BANNED",
+      displayName: "封禁用户",
+    });
+    vi.mocked(getAdminUsers).mockResolvedValue([member, banned]);
+    vi.mocked(banUser).mockRejectedValue(
+      new ApiError("不能封禁管理员账号", 400, "CANNOT_BAN_ADMIN"),
+    );
+    let resolveUnban!: (value: typeof banned & { role: "USER" }) => void;
+    vi.mocked(unbanUser).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveUnban = resolve;
+        }),
+    );
+    renderPage();
+
+    await userEvent.click(await screen.findByRole("button", { name: "封禁" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "不能封禁管理员账号",
+    );
+
+    const bannedRow = screen.getByText("封禁用户").closest("tr");
+    expect(bannedRow).not.toBeNull();
+    await userEvent.click(
+      within(bannedRow!).getByRole("button", { name: "解封" }),
+    );
+
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    resolveUnban({
+      ...banned,
+      role: "USER",
+    });
+    expect(await within(bannedRow!).findByText("用户")).toBeInTheDocument();
   });
 });
 

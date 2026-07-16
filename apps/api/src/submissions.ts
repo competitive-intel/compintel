@@ -14,6 +14,9 @@ import {
 
 import { HttpError } from "./errors.js";
 
+const SUBMISSION_RATE_LIMIT = 50;
+const SUBMISSION_RATE_WINDOW_MS = 24 * 60 * 60 * 1_000;
+
 interface EvaluationQueue {
   add(
     name: string,
@@ -47,6 +50,25 @@ export class SubmissionService {
           });
           if (game === null) {
             throw new HttpError(404, "游戏不存在或尚未发布", "GAME_NOT_FOUND");
+          }
+
+          const windowStart = new Date(Date.now() - SUBMISSION_RATE_WINDOW_MS);
+          const recentSubmissionCount = await tx.playerVersion.count({
+            where: {
+              createdAt: { gte: windowStart },
+              player: {
+                ownerId: userId,
+                gameId: game.id,
+                kind: "USER",
+              },
+            },
+          });
+          if (recentSubmissionCount >= SUBMISSION_RATE_LIMIT) {
+            throw new HttpError(
+              429,
+              `提交过于频繁，每个游戏每 24 小时最多提交 ${SUBMISSION_RATE_LIMIT} 次`,
+              "SUBMISSION_RATE_LIMIT",
+            );
           }
 
           const player = await tx.player.upsert({
@@ -143,7 +165,7 @@ export class SubmissionService {
           removeOnFail: 1_000,
         },
       );
-    } catch (error) {
+    } catch {
       await updateEvaluationAndScore(this.db, evaluationId, {
         status: "FINISHED",
         verdict: "INTERNAL_ERROR",
