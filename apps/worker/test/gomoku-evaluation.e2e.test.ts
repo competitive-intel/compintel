@@ -3,7 +3,10 @@ import test from "node:test";
 
 import { GoJudgeClient } from "@compintel/judge-client";
 
-import { runGomokuEvaluation } from "../src/evaluation-processor.js";
+import {
+  runGomokuEvaluation,
+  runQuoridorEvaluation,
+} from "../src/games/index.js";
 
 const judgeUrl = process.env.JUDGE_E2E_URL;
 
@@ -34,6 +37,46 @@ test(
       ]);
       const run = await runGomokuEvaluation(player, opponent);
       assert.equal(run.verdict, "ACCEPTED");
+      assert.ok(run.replay.moves.length > 2);
+      assert.ok(run.playerTotalCpuNs <= LIMITS.totalCpuLimitNs);
+      assert.ok(run.opponentTotalCpuNs <= LIMITS.totalCpuLimitNs);
+    } finally {
+      await Promise.all([
+        judge.deleteFile(playerFileId),
+        judge.deleteFile(opponentFileId),
+      ]);
+    }
+  },
+);
+
+test(
+  "compiles and coordinates two Quoridor C++ bots in go-judge",
+  { skip: judgeUrl === undefined },
+  async () => {
+    const judge = new GoJudgeClient({
+      baseUrl: judgeUrl!,
+      ...(process.env.JUDGE_E2E_AUTH_TOKEN === undefined
+        ? {}
+        : { authToken: process.env.JUDGE_E2E_AUTH_TOKEN }),
+      requestTimeoutMs: 30_000,
+    });
+    const [playerCompilation, opponentCompilation] = await Promise.all([
+      judge.compileCpp(QUORIDOR_FORWARD_CPP),
+      judge.compileCpp(QUORIDOR_FORWARD_CPP),
+    ]);
+    assert.notEqual(playerCompilation.executableFileId, null);
+    assert.notEqual(opponentCompilation.executableFileId, null);
+
+    const playerFileId = playerCompilation.executableFileId!;
+    const opponentFileId = opponentCompilation.executableFileId!;
+    try {
+      const [player, opponent] = await Promise.all([
+        judge.startInteractive(playerFileId, LIMITS),
+        judge.startInteractive(opponentFileId, LIMITS),
+      ]);
+      const run = await runQuoridorEvaluation(player, opponent);
+      assert.equal(run.verdict, "ACCEPTED");
+      assert.equal(run.replay.result.type, "win");
       assert.ok(run.replay.moves.length > 2);
       assert.ok(run.playerTotalCpuNs <= LIMITS.totalCpuLimitNs);
       assert.ok(run.opponentTotalCpuNs <= LIMITS.totalCpuLimitNs);
@@ -87,6 +130,45 @@ int main() {
       }
     }
     seat = 1;
+  }
+}
+`;
+
+const QUORIDOR_FORWARD_CPP = String.raw`
+#include <iostream>
+
+int main() {
+  std::ios::sync_with_stdio(false);
+  std::cin.tie(nullptr);
+
+  int version, seat;
+  if (!(std::cin >> version >> seat)) return 1;
+  int x = 4, y = seat == 0 ? 0 : 8;
+  int opponent_x = 4, opponent_y = seat == 0 ? 8 : 0;
+  bool first_turn = true;
+
+  while (true) {
+    if (seat == 1 || !first_turn) {
+      int action;
+      if (!(std::cin >> action >> opponent_x >> opponent_y)) return 0;
+      if (action == 1) {
+        int orientation;
+        std::cin >> orientation;
+      }
+    }
+
+    int direction = seat == 0 ? 1 : -1;
+    int next_x = x;
+    int next_y = y + direction;
+    if (next_x == opponent_x && next_y == opponent_y) {
+      int jump_y = next_y + direction;
+      if (jump_y >= 0 && jump_y < 9) next_y = jump_y;
+      else next_x += next_x < 8 ? 1 : -1;
+    }
+    x = next_x;
+    y = next_y;
+    std::cout << 0 << ' ' << x << ' ' << y << std::endl;
+    first_turn = false;
   }
 }
 `;

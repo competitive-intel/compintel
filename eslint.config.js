@@ -40,6 +40,7 @@ export default tseslint.config(
       "packages/config/**/*.{ts,tsx}",
       "packages/db/**/*.{ts,tsx}",
       "packages/judge-client/**/*.{ts,tsx}",
+      "packages/logger/**/*.{ts,tsx}",
       "packages/*/test/**/*.{ts,tsx}",
     ],
     languageOptions: {

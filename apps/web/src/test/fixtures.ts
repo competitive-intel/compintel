@@ -6,7 +6,6 @@ import type {
   Evaluation,
   GameDetail,
   GameSummary,
-  GomokuReplay,
   SubmissionDetail,
   SubmissionRecord,
 } from "@compintel/contracts";
@@ -168,24 +167,6 @@ export function submissionDetailFixture(
     sourceSha256:
       "00096d96da5299e65479678a8e79b07ab36e6185120e892a1360e1be25e84fbb",
     evaluations: [evaluationFixture()],
-    ...overrides,
-  };
-}
-
-export function replayFixture(
-  overrides: Partial<GomokuReplay> = {},
-): GomokuReplay {
-  return {
-    gameSlug: "gomoku",
-    width: 3,
-    height: 3,
-    userSeat: 0,
-    moves: [
-      { x: 0, y: 0, seat: 0 },
-      { x: 1, y: 1, seat: 1 },
-      { x: 2, y: 0, seat: 0 },
-    ],
-    result: { type: "win", winner: 0 },
     ...overrides,
   };
 }

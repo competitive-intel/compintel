@@ -22,6 +22,8 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-player-red: var(--player-red);
+  --color-player-blue: var(--player-blue);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -50,6 +52,8 @@
   --border: oklch(0.9 0 0);
   --input: oklch(0.9 0 0);
   --ring: oklch(0.42 0 0);
+  --player-red: oklch(0.58 0.22 27);
+  --player-blue: oklch(0.55 0.2 255);
 }
 
 .dark {
@@ -73,6 +77,8 @@
   --border: oklch(1 0 0 / 14%);
   --input: oklch(1 0 0 / 18%);
   --ring: oklch(0.65 0 0);
+  --player-red: oklch(0.68 0.2 25);
+  --player-blue: oklch(0.68 0.17 250);
 }
 
 @layer base {
@@ -194,6 +200,11 @@
   .markdown-content pre code {
     padding: 0;
     background: transparent;
+  }
+
+  .markdown-content .shiki {
+    background-color: var(--muted) !important;
+    border: 1px solid var(--border);
   }
 
   .code-highlight .shiki {

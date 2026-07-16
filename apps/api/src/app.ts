@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import {
   adminGameListSchema,
   adminGameSchema,
@@ -10,6 +12,7 @@ import {
   createBuiltinPlayerSchema,
   createBuiltinPlayerVersionSchema,
   createPlayerSchema,
+  evaluationWorkerStatusSchema,
   gameDetailSchema,
   gameListSchema,
   loginSchema,
@@ -27,13 +30,18 @@ import {
   type CurrentUser,
 } from "@compintel/contracts";
 import type { PrismaClient } from "@compintel/db";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, {
+  type FastifyBaseLogger,
+  type FastifyInstance,
+  LogController,
+} from "fastify";
 import { z, ZodError } from "zod";
 
 import { AuthService } from "./auth.js";
 import { BuiltinPlayerService } from "./builtin-players.js";
 import { resolveClientIp } from "./client-ip.js";
 import { EvaluationRecordService } from "./evaluation-records.js";
+import { EvaluationWorkerStatusService } from "./evaluation-worker-status.js";
 import { HttpError } from "./errors.js";
 import { GameService } from "./games.js";
 import { SubmissionService } from "./submissions.js";
@@ -56,16 +64,26 @@ const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
 export interface AppDependencies {
   db: PrismaClient;
   submissions: SubmissionService;
+  workerStatus: EvaluationWorkerStatusService;
   auth?: AuthService;
   games?: GameService;
   builtinPlayers?: BuiltinPlayerService;
   evaluationRecords?: EvaluationRecordService;
   systemSettings?: SystemSettingsService;
   secureCookies?: boolean;
+  logger?: FastifyBaseLogger;
 }
 
 export function buildApp(dependencies: AppDependencies): FastifyInstance {
-  const app = Fastify({ logger: true });
+  const requestOptions = {
+    requestIdHeader: "x-request-id",
+    logController: new LogController({ requestIdLogLabel: "requestId" }),
+    genReqId: () => randomUUID(),
+  } as const;
+  const app =
+    dependencies.logger === undefined
+      ? Fastify({ ...requestOptions, logger: false })
+      : Fastify({ ...requestOptions, loggerInstance: dependencies.logger });
   const auth = dependencies.auth ?? new AuthService(dependencies.db);
   const games = dependencies.games ?? new GameService(dependencies.db);
   const builtinPlayers =
@@ -75,7 +93,12 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
     new EvaluationRecordService(dependencies.db);
   const systemSettings =
     dependencies.systemSettings ?? new SystemSettingsService(dependencies.db);
+  const workerStatus = dependencies.workerStatus;
   const secureCookies = dependencies.secureCookies ?? false;
+
+  app.addHook("onRequest", async (request, reply) => {
+    reply.header("x-request-id", request.id);
+  });
 
   app.get("/health", async () => ({ status: "ok" }));
 
@@ -84,6 +107,10 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
     const user = await auth.register(input, {
       clientIp: resolveClientIp(request.headers, request.ip),
     });
+    request.log.info(
+      { event: "auth.user_registered", userId: user.id },
+      "user registered",
+    );
     return reply.code(201).send(registerResponseSchema.parse({ user }));
   });
 
@@ -94,12 +121,22 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
       "set-cookie",
       sessionCookie(session.token, SESSION_MAX_AGE_SECONDS, secureCookies),
     );
+    request.log.info(
+      { event: "auth.user_logged_in", userId: session.user.id },
+      "user logged in",
+    );
     return authResponseSchema.parse({ user: session.user });
   });
 
   app.post("/v1/auth/verify-email", async (request) => {
     const input = verifyEmailSchema.parse(request.body);
     const result = await auth.verifyEmail(input);
+    if ("user" in result) {
+      request.log.info(
+        { event: "auth.email_verified", userId: result.user.id },
+        "email verified",
+      );
+    }
     return verifyEmailResponseSchema.parse(result);
   });
 
@@ -108,6 +145,10 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
     await auth.resendVerification(input, {
       clientIp: resolveClientIp(request.headers, request.ip),
     });
+    request.log.info(
+      { event: "auth.verification_resent" },
+      "verification email resent",
+    );
     return okResponseSchema.parse({ ok: true });
   });
 
@@ -131,15 +172,26 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
     return systemSettingsSchema.parse(await systemSettings.get());
   });
 
+  app.get("/v1/admin/evaluation-worker-status", async (request) => {
+    await requireAdministrator(auth, request.headers.cookie);
+    return evaluationWorkerStatusSchema.parse(await workerStatus.get());
+  });
+
   app.patch("/v1/admin/system-settings", async (request) => {
     const administrator = await requireAdministrator(
       auth,
       request.headers.cookie,
     );
     const input = updateSystemSettingsSchema.parse(request.body);
-    return systemSettingsSchema.parse(
-      await systemSettings.update(administrator.id, input),
+    const settings = await systemSettings.update(administrator.id, input);
+    request.log.info(
+      {
+        event: "admin.system_settings_updated",
+        administratorId: administrator.id,
+      },
+      "system settings updated",
     );
+    return systemSettingsSchema.parse(settings);
   });
 
   app.get("/v1/admin/users", async (request) => {
@@ -153,7 +205,16 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
       request.headers.cookie,
     );
     const { userId } = userParamsSchema.parse(request.params);
-    return adminUserSchema.parse(await auth.banUser(administrator.id, userId));
+    const user = await auth.banUser(administrator.id, userId);
+    request.log.info(
+      {
+        event: "admin.user_banned",
+        administratorId: administrator.id,
+        userId,
+      },
+      "user banned",
+    );
+    return adminUserSchema.parse(user);
   });
 
   app.post("/v1/admin/users/:userId/unban", async (request) => {
@@ -162,9 +223,16 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
       request.headers.cookie,
     );
     const { userId } = userParamsSchema.parse(request.params);
-    return adminUserSchema.parse(
-      await auth.unbanUser(administrator.id, userId),
+    const user = await auth.unbanUser(administrator.id, userId);
+    request.log.info(
+      {
+        event: "admin.user_unbanned",
+        administratorId: administrator.id,
+        userId,
+      },
+      "user unbanned",
     );
+    return adminUserSchema.parse(user);
   });
 
   app.get("/v1/games", async (request) => {
@@ -184,10 +252,22 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
   });
 
   app.patch("/v1/admin/games/:gameId", async (request) => {
-    await requireAdministrator(auth, request.headers.cookie);
+    const administrator = await requireAdministrator(
+      auth,
+      request.headers.cookie,
+    );
     const { gameId } = gameIdParamsSchema.parse(request.params);
     const input = updateGameSchema.parse(request.body);
-    return adminGameSchema.parse(await games.update(gameId, input));
+    const game = await games.update(gameId, input);
+    request.log.info(
+      {
+        event: "admin.game_updated",
+        administratorId: administrator.id,
+        gameId,
+      },
+      "game updated",
+    );
+    return adminGameSchema.parse(game);
   });
 
   app.get("/v1/admin/games/:gameId/builtin-players", async (request) => {
@@ -201,43 +281,67 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
   app.post(
     "/v1/admin/games/:gameId/builtin-players",
     async (request, reply) => {
-      await requireAdministrator(auth, request.headers.cookie);
+      const administrator = await requireAdministrator(
+        auth,
+        request.headers.cookie,
+      );
       const { gameId } = gameIdParamsSchema.parse(request.params);
       const input = createBuiltinPlayerSchema.parse(request.body);
-      return reply
-        .code(201)
-        .send(
-          adminBuiltinPlayerSchema.parse(
-            await builtinPlayers.create(gameId, input),
-          ),
-        );
+      const player = await builtinPlayers.create(gameId, input);
+      request.log.info(
+        {
+          event: "admin.platform_player_created",
+          administratorId: administrator.id,
+          gameId,
+          playerId: player.id,
+        },
+        "platform player created",
+      );
+      return reply.code(201).send(adminBuiltinPlayerSchema.parse(player));
     },
   );
 
   app.patch("/v1/admin/builtin-players/:builtinPlayerId", async (request) => {
-    await requireAdministrator(auth, request.headers.cookie);
+    const administrator = await requireAdministrator(
+      auth,
+      request.headers.cookie,
+    );
     const { builtinPlayerId } = builtinPlayerParamsSchema.parse(request.params);
     const input = updateBuiltinPlayerSchema.parse(request.body);
-    return adminBuiltinPlayerSchema.parse(
-      await builtinPlayers.update(builtinPlayerId, input),
+    const player = await builtinPlayers.update(builtinPlayerId, input);
+    request.log.info(
+      {
+        event: "admin.platform_player_updated",
+        administratorId: administrator.id,
+        playerId: builtinPlayerId,
+      },
+      "platform player updated",
     );
+    return adminBuiltinPlayerSchema.parse(player);
   });
 
   app.post(
     "/v1/admin/builtin-players/:builtinPlayerId/versions",
     async (request, reply) => {
-      await requireAdministrator(auth, request.headers.cookie);
+      const administrator = await requireAdministrator(
+        auth,
+        request.headers.cookie,
+      );
       const { builtinPlayerId } = builtinPlayerParamsSchema.parse(
         request.params,
       );
       const input = createBuiltinPlayerVersionSchema.parse(request.body);
-      return reply
-        .code(201)
-        .send(
-          adminBuiltinPlayerSchema.parse(
-            await builtinPlayers.createVersion(builtinPlayerId, input),
-          ),
-        );
+      const player = await builtinPlayers.createVersion(builtinPlayerId, input);
+      request.log.info(
+        {
+          event: "admin.platform_player_version_created",
+          administratorId: administrator.id,
+          playerId: builtinPlayerId,
+          version: player.latestVersion.version,
+        },
+        "platform player version created",
+      );
+      return reply.code(201).send(adminBuiltinPlayerSchema.parse(player));
     },
   );
 
@@ -249,6 +353,18 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
       user.id,
       gameSlug,
       input,
+    );
+    request.log.info(
+      {
+        event: "submission.accepted",
+        userId: user.id,
+        gameSlug,
+        playerId: result.playerId,
+        playerVersionId: result.playerVersionId,
+        version: result.version,
+        evaluationCount: result.evaluationIds.length,
+      },
+      "submission accepted",
     );
     return reply.code(202).send(result);
   });
@@ -274,8 +390,16 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
     return evaluationRecords.getDetail(submissionId);
   });
 
-  app.setErrorHandler((error, _request, reply) => {
+  app.setErrorHandler((error, request, reply) => {
     if (error instanceof ZodError) {
+      request.log.debug(
+        {
+          event: "http.request_validation_failed",
+          code: "INVALID_REQUEST",
+          issueCount: error.issues.length,
+        },
+        "request validation failed",
+      );
       return reply.code(400).send({
         code: "INVALID_REQUEST",
         message: "request validation failed",
@@ -283,12 +407,25 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
       });
     }
     if (error instanceof HttpError) {
+      const logContext = {
+        event: "http.request_rejected",
+        code: error.code,
+        statusCode: error.statusCode,
+      };
+      if (error.statusCode >= 500) {
+        request.log.warn(logContext, "request rejected by service");
+      } else {
+        request.log.debug(logContext, "request rejected by service");
+      }
       return reply.code(error.statusCode).send({
         code: error.code,
         message: error.message,
       });
     }
-    app.log.error(error);
+    request.log.error(
+      { err: error, event: "http.request_failed" },
+      "unhandled request error",
+    );
     return reply.code(500).send({
       code: "INTERNAL_ERROR",
       message: "an internal error occurred",

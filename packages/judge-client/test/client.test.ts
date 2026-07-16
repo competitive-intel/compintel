@@ -144,6 +144,7 @@ test("runs a controlled interactive turn over the stream websocket", async () =>
   );
   const command = (execution?.cmd as Array<Record<string, unknown>>)[0]!;
   assert.deepEqual(command.copyIn, { player: { fileId: "binary-id" } });
+  assert.equal(command.clockLimit, 300_000_000_000);
 });
 
 function binaryJson(type: number, value: unknown): Buffer {
