@@ -12,6 +12,7 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { logout } from "../lib/api";
 import { currentUserQueryKey, useCurrentUser } from "../lib/auth";
 import { cn } from "../lib/utils";
+import { AppFooter } from "./AppFooter";
 import { EvaluationWorkerStatusAlert } from "./EvaluationWorkerStatusAlert";
 import { ThemeToggle } from "./ThemeToggle";
 import { Button } from "./ui/button";
@@ -165,6 +166,7 @@ export function AppShell() {
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 sm:px-6 lg:px-8">
         <Outlet />
       </main>
+      <AppFooter />
     </div>
   );
 }
