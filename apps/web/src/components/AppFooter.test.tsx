@@ -8,7 +8,7 @@ describe("AppFooter", () => {
     render(<AppFooter />);
 
     expect(screen.getByRole("contentinfo")).toHaveTextContent(
-      /Competitive Intelligence(?:[0-9a-f]{7}|unknown)开源/,
+      /Competitive Intelligence开源(?:[0-9a-f]{7}|unknown)/,
     );
     const commitLink = screen.queryByRole("link", {
       name: /^[0-9a-f]{7}$/,
@@ -34,5 +34,6 @@ describe("AppFooter", () => {
       "https://github.com/competitive-intel/compintel",
     );
     expect(repositoryLink).toHaveAttribute("target", "_blank");
+    expect(repositoryLink.querySelector("svg")).toHaveClass("lucide-git-fork");
   });
 });
