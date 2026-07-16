@@ -1,3 +1,5 @@
+import { GitFork } from "lucide-react";
+
 import { Separator } from "./ui/separator";
 
 const repositoryUrl = "https://github.com/competitive-intel/compintel";
@@ -13,29 +15,32 @@ export function AppFooter() {
   return (
     <footer className="mt-auto w-full">
       <Separator />
-      <div className="mx-auto flex min-h-14 w-full max-w-6xl flex-wrap items-center justify-center gap-x-3 gap-y-1 px-4 py-4 text-xs text-muted-foreground sm:px-6 lg:px-8">
+      <div className="mx-auto flex min-h-14 w-full max-w-6xl items-center justify-between gap-3 px-4 py-4 text-xs text-muted-foreground sm:px-6 lg:px-8">
         <span>Competitive Intelligence</span>
-        {commitUrl === undefined ? (
-          <span className="font-mono text-foreground">{shortCommitId}</span>
-        ) : (
+        <div className="flex items-center justify-end gap-3">
           <a
-            className="font-mono text-foreground transition-colors hover:text-muted-foreground"
-            href={commitUrl}
+            className="flex items-center gap-1 text-foreground transition-colors hover:text-muted-foreground"
+            href={repositoryUrl}
             rel="noreferrer"
             target="_blank"
-            title={`Git commit: ${__APP_GIT_COMMIT__}`}
           >
-            {shortCommitId}
+            <GitFork aria-hidden="true" className="size-3.5" />
+            开源
           </a>
-        )}
-        <a
-          className="text-foreground transition-colors hover:text-muted-foreground"
-          href={repositoryUrl}
-          rel="noreferrer"
-          target="_blank"
-        >
-          开源
-        </a>
+          {commitUrl === undefined ? (
+            <span className="font-mono text-foreground">{shortCommitId}</span>
+          ) : (
+            <a
+              className="font-mono text-foreground transition-colors hover:text-muted-foreground"
+              href={commitUrl}
+              rel="noreferrer"
+              target="_blank"
+              title={`Git commit: ${__APP_GIT_COMMIT__}`}
+            >
+              {shortCommitId}
+            </a>
+          )}
+        </div>
       </div>
     </footer>
   );
