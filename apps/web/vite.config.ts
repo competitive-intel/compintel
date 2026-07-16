@@ -31,7 +31,7 @@ async function resolveGitCommit(): Promise<string> {
     environmentCommit !== undefined &&
     /^[0-9a-f]{7,64}$/i.test(environmentCommit.trim())
   ) {
-    return environmentCommit.trim();
+    return environmentCommit.trim().toLowerCase();
   }
 
   return "unknown";

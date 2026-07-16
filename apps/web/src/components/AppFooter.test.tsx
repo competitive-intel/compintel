@@ -10,15 +10,22 @@ describe("AppFooter", () => {
     expect(screen.getByRole("contentinfo")).toHaveTextContent(
       /Competitive Intelligence(?:[0-9a-f]{7}|unknown)开源/,
     );
-    const commitLink = screen.getByRole("link", {
-      name: /^(?:[0-9a-f]{7}|unknown)$/,
+    const commitLink = screen.queryByRole("link", {
+      name: /^[0-9a-f]{7}$/,
     });
-    expect(commitLink).toHaveAttribute(
-      "href",
-      expect.stringMatching(
-        /^https:\/\/github\.com\/competitive-intel\/compintel\/commit\/(?:[0-9a-f]{7,64}|unknown)$/,
-      ),
-    );
+    if (commitLink === null) {
+      expect(screen.getByText("unknown")).toBeInTheDocument();
+      expect(
+        screen.queryByRole("link", { name: "unknown" }),
+      ).not.toBeInTheDocument();
+    } else {
+      expect(commitLink).toHaveAttribute(
+        "href",
+        expect.stringMatching(
+          /^https:\/\/github\.com\/competitive-intel\/compintel\/commit\/[0-9a-f]{7,64}$/,
+        ),
+      );
+    }
     const repositoryLink = screen.getByRole("link", {
       name: "开源",
     });
