@@ -4,7 +4,7 @@
 
 ## 发布边界
 
-游戏目录由 seed 等源代码安装，管理 API 不提供创建操作。每个游戏的 seed 元数据分别位于 `packages/db/prisma/games/`，由同目录 registry 统一提供给 `seed.ts`。用户目录、详情查询及 Player 提交都要求 `isPublished=true`，因此管理员可以编辑已安装游戏的展示内容并控制发布。下架使用同一字段，不物理删除记录，避免破坏 Player、评测和对局外键。
+游戏目录由 seed 等源代码安装，管理 API 不提供创建操作。每个游戏的 seed 元数据分别位于 `packages/db/prisma/games/`，由同目录 registry 统一提供给 `seed.ts`。seed 只插入数据库中尚不存在的 slug，重复运行不会覆盖管理员已经修改的展示内容、资源限制或发布状态。用户目录、详情查询及 Player 提交都要求 `isPublished=true`，因此管理员可以编辑已安装游戏的展示内容并控制发布。下架使用同一字段，不物理删除记录，避免破坏 Player、评测和对局外键。
 
 `GameService` 集中处理目录查询、序列化与更新：
 

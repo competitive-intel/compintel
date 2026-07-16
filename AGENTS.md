@@ -80,7 +80,7 @@ CompIntel 是一个面向算法竞赛选手的通用 AI 对战平台。用户提
 - `packages/db/prisma/schema.prisma` 是模型真相源；修改后运行 Prisma generate、format，并新增或简化迁移。
 - 项目尚未正式上线。数据库变更优先保持最终 Schema 和迁移历史清晰，不添加无需求的双写、旧字段回退或兼容分支。
 - 不要无提示重置本地数据库。只有用户明确要求清库/重建时，才执行 `prisma migrate reset --force`，随后 seed、重启服务并做健康检查。
-- seed 当前只 upsert 管理员、五子棋与路墙棋游戏目录，不安装内置 Player。管理员需通过游戏管理页面创建并启用至少一个平台 C++ Player。
+- seed 当前只插入缺失的默认系统设置、可选管理员、五子棋与路墙棋游戏目录，不更新任何已有记录，也不安装内置 Player。管理员需通过游戏管理页面创建并启用至少一个平台 C++ Player。
 - 源码和 replay 当前直接保存在 PostgreSQL。S3/MinIO 是后续方向，尚未接入运行链路；引入时应保留摘要与不可变版本语义，大对象改存对象键。
 
 ## 前端约定
@@ -108,7 +108,7 @@ pnpm db:seed
 pnpm exec turbo run dev --env-mode=loose
 ```
 
-`DATABASE_URL` 是 API、Worker、迁移和 seed 的必需变量；Worker 还需要 `REDIS_URL`、`JUDGE_URL`，API 使用 `API_HOST`、`API_PORT`。发送验证邮件还需配置 `TENCENT_SES_SECRET_ID` / `TENCENT_SES_SECRET_KEY`（可留空，但留空时无法注册发信）。seed 仅在设置 `ADMIN_PASSWORD` 时创建/更新管理员。`.env.example` 中的密码只适合本地开发。
+`DATABASE_URL` 是 API、Worker、迁移和 seed 的必需变量；Worker 还需要 `REDIS_URL`、`JUDGE_URL`，API 使用 `API_HOST`、`API_PORT`。发送验证邮件还需配置 `TENCENT_SES_SECRET_ID` / `TENCENT_SES_SECRET_KEY`（可留空，但留空时无法注册发信）。seed 仅在设置 `ADMIN_PASSWORD` 时尝试创建管理员，已有同名或同邮箱用户不会被修改。`.env.example` 中的密码只适合本地开发。
 
 默认地址：Web `http://127.0.0.1:5173`、API `http://127.0.0.1:3000`、go-judge `http://127.0.0.1:5050`。真实启动验证至少检查：
 
