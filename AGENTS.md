@@ -124,6 +124,8 @@ curl -fsS http://127.0.0.1:5050/version
 
 根据改动范围运行最小相关检查，并在跨包契约、数据库或核心流程变更后执行全仓检查：
 
+以下所有 pnpm 验证命令（包括 typecheck、test、build 和聚焦检查）都必须在受限沙箱外运行。pnpm 需要访问用户级 package store 及其 SQLite 索引；在沙箱内执行可能以 `ERR_SQLITE_ERROR: unable to open database file` 失败，这属于环境限制，不能视为代码或测试失败。
+
 ```bash
 pnpm typecheck
 pnpm test
