@@ -1,8 +1,13 @@
+import { LOG_LEVELS } from "@compintel/logger";
 import { z } from "zod";
 
 const baseServerSchema = z.object({
   DATABASE_URL: z.url(),
   REDIS_URL: z.url(),
+  NODE_ENV: z
+    .enum(["development", "test", "production"])
+    .default("development"),
+  LOG_LEVEL: z.enum(LOG_LEVELS).default("info"),
 });
 
 const apiSchema = baseServerSchema.extend({

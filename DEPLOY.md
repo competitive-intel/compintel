@@ -67,6 +67,7 @@ chmod 600 .env
 ```dotenv
 DATABASE_URL=postgresql://<user>:<password>@<postgres-host>:5432/compintel
 REDIS_URL=redis://<user>:<password>@<redis-host>:6379/0
+LOG_LEVEL=info
 
 API_HOST=127.0.0.1
 API_PORT=3000
@@ -86,7 +87,7 @@ ADMIN_PASSWORD=<随机且足够长的管理员密码>
 VITE_API_BASE_URL=/api
 ```
 
-`VITE_*` 变量会被写入浏览器静态产物，只能放公开地址，不能放数据库密码、Token 或内部服务地址。`ADMIN_PASSWORD` 只在 seed 时使用，生产环境不要使用 `.env.example` 中的示例值。`TENCENT_SES_SECRET_*` 仅供 API 进程读取，不要写入前端或数据库；发件地址与模板 ID 仍在管理后台系统设置中配置。
+`LOG_LEVEL` 默认为 `info`；只应在短期排查评测回合时切到 `debug`，因为逐回合资源日志会显著增加输出量。`VITE_*` 变量会被写入浏览器静态产物，只能放公开地址，不能放数据库密码、Token 或内部服务地址。`ADMIN_PASSWORD` 只在 seed 时使用，生产环境不要使用 `.env.example` 中的示例值。`TENCENT_SES_SECRET_*` 仅供 API 进程读取，不要写入前端或数据库；发件地址与模板 ID 仍在管理后台系统设置中配置。
 
 ## 5. 启动 PostgreSQL、Redis 和 go-judge
 
@@ -314,7 +315,16 @@ sudo systemctl restart compintel-api compintel-worker
 查看应用日志：
 
 ```bash
-journalctl -u compintel-api -f
-journalctl -u compintel-worker -f
+journalctl -u compintel-api -o cat -f
+journalctl -u compintel-worker -o cat -f
 docker compose -f infra/compose.yaml logs -f go-judge
 ```
+
+API 和 Worker 输出单行 JSON。可用响应头中的 `X-Request-Id` 定位 API 请求，或用评测详情中的 Evaluation ID 定位 Worker 流程：
+
+```bash
+journalctl -u compintel-api -o cat | jq 'select(.requestId == "<request-id>")'
+journalctl -u compintel-worker -o cat | jq 'select(.evaluationId == "<evaluation-id>")'
+```
+
+日志字段、事件和敏感信息边界详见 `docs/tech/backend/logging.md`。

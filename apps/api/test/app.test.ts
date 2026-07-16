@@ -1,19 +1,27 @@
 import assert from "node:assert/strict";
+import { Writable } from "node:stream";
 import test from "node:test";
 
 import type { CurrentUser } from "@compintel/contracts";
 import type { PrismaClient } from "@compintel/db";
+import { createLogger } from "@compintel/logger";
 
 import { buildApp } from "../src/app.js";
 import type { AuthService } from "../src/auth.js";
 import type { BuiltinPlayerService } from "../src/builtin-players.js";
 import type { EvaluationRecordService } from "../src/evaluation-records.js";
+import type { EvaluationWorkerStatusService } from "../src/evaluation-worker-status.js";
 import type { GameService } from "../src/games.js";
 import type { SubmissionService } from "../src/submissions.js";
 
 const unusedDependencies = {
   db: {} as PrismaClient,
   submissions: {} as SubmissionService,
+  workerStatus: {
+    async get() {
+      return { online: true, workerCount: 1 };
+    },
+  } as unknown as EvaluationWorkerStatusService,
   auth: { authenticate: async () => null } as unknown as AuthService,
 };
 
@@ -24,6 +32,52 @@ test("health endpoint is available without authentication", async () => {
 
   assert.equal(response.statusCode, 200);
   assert.deepEqual(response.json(), { status: "ok" });
+});
+
+test("correlates structured request logs without exposing cookies", async () => {
+  const entries: string[] = [];
+  const destination = new Writable({
+    write(chunk, _encoding, callback) {
+      entries.push(chunk.toString());
+      callback();
+    },
+  });
+  const app = buildApp({
+    ...unusedDependencies,
+    logger: createLogger({ service: "api-test", destination }),
+  });
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/health",
+    headers: {
+      cookie: "compintel_session=must-not-be-logged",
+      "x-request-id": "request-123",
+    },
+  });
+  await app.close();
+
+  assert.equal(response.headers["x-request-id"], "request-123");
+  const serialized = entries.join("");
+  assert.equal(serialized.includes("must-not-be-logged"), false);
+  const logs = serialized
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+  assert.equal(
+    logs.some(
+      (entry) =>
+        entry.requestId === "request-123" && entry.msg === "incoming request",
+    ),
+    true,
+  );
+  assert.equal(
+    logs.some(
+      (entry) =>
+        entry.requestId === "request-123" && entry.msg === "request completed",
+    ),
+    true,
+  );
 });
 
 test("player submission requires an identity", async () => {
@@ -146,6 +200,29 @@ test("ordinary users cannot access admin users", async () => {
 
   assert.equal(response.statusCode, 403);
   assert.equal(response.json().code, "ADMIN_REQUIRED");
+});
+
+test("administrators can inspect evaluation worker availability", async () => {
+  const workerStatus = {
+    async get() {
+      return { online: false, workerCount: 0 };
+    },
+  } as unknown as EvaluationWorkerStatusService;
+  const auth = {
+    async authenticate() {
+      return userFixture({ role: "ADMIN" });
+    },
+  } as unknown as AuthService;
+  const app = buildApp({ ...unusedDependencies, auth, workerStatus });
+  const response = await app.inject({
+    method: "GET",
+    url: "/v1/admin/evaluation-worker-status",
+    headers: { cookie: "compintel_session=admin-session" },
+  });
+  await app.close();
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.json(), { online: false, workerCount: 0 });
 });
 
 test("game catalog requires an approved session", async () => {

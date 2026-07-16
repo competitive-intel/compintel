@@ -5,6 +5,7 @@ import type {
   JudgeTurnResult,
 } from "@compintel/judge-client";
 import { JudgePlayerOutputError } from "@compintel/judge-client";
+import type { Logger } from "@compintel/logger";
 
 export type EvaluationVerdict =
   | "ACCEPTED"
@@ -79,6 +80,7 @@ export async function runInteractiveEvaluation<
   userSeat: InteractiveSeat,
   resourceLimits: GameResourceLimits,
   adapter: GameAdapter<TGame, TMove, TReplay>,
+  logger?: Logger,
 ): Promise<InteractiveRunResult<TReplay>> {
   const game = adapter.createGame();
   const outputs: string[] = [];
@@ -93,6 +95,7 @@ export async function runInteractiveEvaluation<
     adapter.createInitialization(game, 1),
   ];
   let currentSeat: InteractiveSeat = 0;
+  let turnNumber = 0;
   const matchWallLimit =
     adapter.matchWallLimitMs === undefined
       ? undefined
@@ -102,6 +105,15 @@ export async function runInteractiveEvaluation<
         };
 
   try {
+    logger?.debug(
+      {
+        event: "evaluation.match_started",
+        userSeat,
+        resourceLimits,
+        matchWallLimitMs: adapter.matchWallLimitMs,
+      },
+      "interactive match started",
+    );
     while (game.result.type === "playing") {
       if (
         matchWallLimit !== undefined &&
@@ -111,12 +123,30 @@ export async function runInteractiveEvaluation<
         failureMessage = `match wall time exceeded ${matchWallLimit.durationMs / 1000}s`;
         break;
       }
+      turnNumber += 1;
       const isPlayerTurn = currentSeat === userSeat;
+      const side = isPlayerTurn ? "user" : "platform";
       const session = isPlayerTurn ? playerSession : opponentSession;
       let turn: JudgeTurnResult;
       try {
+        const inputBytes = Buffer.byteLength(inputs[currentSeat]);
         turn = await session.playTurn(inputs[currentSeat]);
         inputs[currentSeat] = "";
+        logger?.debug(
+          {
+            event: "evaluation.turn_completed",
+            turnNumber,
+            seat: currentSeat,
+            side,
+            turnEvent: turn.type,
+            inputBytes,
+            outputBytes: Buffer.byteLength(turn.output ?? ""),
+            moveCpuMs: nanosecondsToMilliseconds(turn.moveCpu),
+            totalCpuMs: nanosecondsToMilliseconds(turn.totalCpu),
+            wallTimeMs: nanosecondsToMilliseconds(turn.wallTime),
+          },
+          "interactive turn completed",
+        );
       } catch (error) {
         if (!(error instanceof JudgePlayerOutputError)) {
           throw error;
@@ -128,6 +158,16 @@ export async function runInteractiveEvaluation<
           verdict = "INTERNAL_ERROR";
           failureMessage = `platform opponent produced invalid output: ${error.message}`;
         }
+        logger?.debug(
+          {
+            event: "evaluation.turn_rejected",
+            turnNumber,
+            seat: currentSeat,
+            side,
+            reason: error.message,
+          },
+          "interactive turn output rejected",
+        );
         break;
       }
       if (isPlayerTurn) {
@@ -163,6 +203,16 @@ export async function runInteractiveEvaluation<
           verdict = "INTERNAL_ERROR";
           failureMessage = `platform opponent made an invalid move: ${errorMessage(error)}`;
         }
+        logger?.debug(
+          {
+            event: "evaluation.move_rejected",
+            turnNumber,
+            seat: currentSeat,
+            side,
+            reason: errorMessage(error),
+          },
+          "interactive move rejected",
+        );
         break;
       }
       if (game.result.type !== "playing") {
@@ -200,6 +250,10 @@ export async function runInteractiveEvaluation<
     replay: adapter.buildReplay(game, userSeat),
     ...(failureMessage === undefined ? {} : { errorMessage: failureMessage }),
   };
+}
+
+function nanosecondsToMilliseconds(value: number): number {
+  return Math.round((value / 1_000_000) * 1_000) / 1_000;
 }
 
 function verdictForSandboxFailure(

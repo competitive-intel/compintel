@@ -17,6 +17,7 @@
     "@compintel/db": "workspace:*",
     "@compintel/game-core": "workspace:*",
     "@compintel/judge-client": "workspace:*",
+    "@compintel/logger": "workspace:*",
     "bullmq": "^5.80.2",
     "ioredis": "^5.11.1",
     "zod": "^4.4.3"

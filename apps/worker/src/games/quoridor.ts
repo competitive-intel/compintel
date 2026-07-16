@@ -8,6 +8,7 @@ import {
 } from "@compintel/game-core";
 import type { GameResourceLimits, QuoridorReplay } from "@compintel/contracts";
 import type { InteractiveJudgeSession } from "@compintel/judge-client";
+import type { Logger } from "@compintel/logger";
 
 import {
   DEFAULT_RESOURCE_LIMITS,
@@ -53,6 +54,7 @@ export async function runQuoridorEvaluation(
   opponentSession: InteractiveJudgeSession,
   userSeat: QuoridorSeat = 1,
   resourceLimits: GameResourceLimits = DEFAULT_RESOURCE_LIMITS,
+  logger?: Logger,
 ): Promise<QuoridorRunResult> {
   return runInteractiveEvaluation(
     playerSession,
@@ -60,5 +62,6 @@ export async function runQuoridorEvaluation(
     userSeat,
     resourceLimits,
     QUORIDOR_ADAPTER,
+    logger,
   );
 }

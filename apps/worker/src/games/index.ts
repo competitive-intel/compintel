@@ -1,5 +1,6 @@
 import type { GameReplay, GameResourceLimits } from "@compintel/contracts";
 import type { InteractiveJudgeSession } from "@compintel/judge-client";
+import type { Logger } from "@compintel/logger";
 
 import { GOMOKU_STATIC_LIMITS, runGomokuEvaluation } from "./gomoku.js";
 import type {
@@ -20,6 +21,7 @@ export interface EvaluationGame {
     opponentSession: InteractiveJudgeSession,
     userSeat: InteractiveSeat,
     resourceLimits: GameResourceLimits,
+    logger?: Logger,
   ): Promise<InteractiveRunResult<GameReplay>>;
 }
 

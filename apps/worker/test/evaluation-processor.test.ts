@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Writable } from "node:stream";
 import test from "node:test";
 
 import type {
@@ -7,6 +8,7 @@ import type {
   JudgeResult,
   JudgeTurnResult,
 } from "@compintel/judge-client";
+import { createLogger } from "@compintel/logger";
 
 import {
   EvaluationProcessor,
@@ -221,6 +223,61 @@ test("compiles both database-backed sources before running", async () => {
   assert.equal(repository.finished?.opponentMemoryBytes, 20n);
 });
 
+test("logs evaluation stages and turn metrics without exposing source code", async () => {
+  const repository = new MemoryRepository();
+  const entries: string[] = [];
+  const destination = new Writable({
+    write(chunk, _encoding, callback) {
+      entries.push(chunk.toString());
+      callback();
+    },
+  });
+  const logger = createLogger({
+    service: "worker-test",
+    level: "debug",
+    destination,
+  });
+
+  await new EvaluationProcessor(
+    repository,
+    judgeWithSessions(new FirstEmptySession(), new FirstEmptySession()),
+    logger.child({ component: "evaluation-processor" }),
+  ).process("evaluation-id");
+
+  const serialized = entries.join("");
+  assert.equal(serialized.includes("// user source"), false);
+  assert.equal(serialized.includes("// platform source"), false);
+  const lines = serialized.trim().split("\n");
+  assert.equal(
+    lines.every((line) => (line.match(/"component":/gu) ?? []).length === 1),
+    true,
+  );
+  const logs = lines.map((line) => JSON.parse(line) as Record<string, unknown>);
+  const events = new Set(logs.map((entry) => entry.event));
+  for (const event of [
+    "evaluation.processing_started",
+    "evaluation.loaded",
+    "evaluation.compilation_started",
+    "evaluation.compilation_completed",
+    "evaluation.sessions_started",
+    "evaluation.running",
+    "evaluation.turn_completed",
+    "evaluation.match_completed",
+    "evaluation.finished",
+  ]) {
+    assert.equal(events.has(event), true, `missing log event ${event}`);
+  }
+  const turnLog = logs.find(
+    (entry) => entry.event === "evaluation.turn_completed",
+  );
+  assert.equal(turnLog?.evaluationId, "evaluation-id");
+  assert.equal(typeof turnLog?.moveCpuMs, "number");
+  assert.equal(typeof turnLog?.totalCpuMs, "number");
+  assert.equal(typeof turnLog?.wallTimeMs, "number");
+  assert.equal(typeof turnLog?.outputBytes, "number");
+  assert.equal(turnLog?.phase, "game");
+});
+
 test("starts both players with resource limits from the game", async () => {
   const repository = new MemoryRepository();
   repository.start = async () => ({
@@ -296,9 +353,7 @@ test("starts quoridor sessions with a 300s process clock limit", async () => {
 
   assert.equal(options.length, 2);
   assert.ok(
-    options.every(
-      (value) => value.processClockLimitNs === 300_000_000_000,
-    ),
+    options.every((value) => value.processClockLimitNs === 300_000_000_000),
   );
   assert.equal(repository.finished?.verdict, "ACCEPTED");
 });

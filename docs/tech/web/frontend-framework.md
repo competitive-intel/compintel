@@ -4,19 +4,21 @@
 
 ## 本地运行
 
-先启动 API 服务：
+本地开发应同时启动 API、Worker 和前端：
+
+```bash
+pnpm start
+```
+
+需要分别调试时，在三个终端运行：
 
 ```bash
 pnpm --filter @compintel/api dev
-```
-
-再启动前端开发服务器：
-
-```bash
+pnpm --filter @compintel/worker dev
 pnpm --filter @compintel/web dev
 ```
 
-默认访问地址是 `http://localhost:5173`。开发服务器将 `/api/*` 请求代理到 `http://localhost:3000/*`，浏览器不需要直接处理跨域配置。
+默认访问地址是 `http://localhost:5173`。开发服务器将 `/api/*` 请求代理到 `http://localhost:3000/*`，浏览器不需要直接处理跨域配置。Worker 是提交评测的队列消费者，不能只启动 API 和 Web。
 
 ## 目录结构
 
@@ -54,6 +56,8 @@ apps/web/
 - `/admin/games`：管理员编辑源代码中已安装的游戏目录、CPU 与内存限制、发布状态，并添加、停用、调整评分权重或创建内置 C++ 程序的新版本。资源限制使用 InputGroup 在输入框尾部显示单位；页面不提供新增游戏入口。
 - `/admin/users`：管理员查看所有用户的用户名、显示名、邮箱与总提交次数，并可封禁或解封普通用户。
 - `/admin/settings`：管理员配置腾讯云 SES 发件地址、`tencentSesTemplateId`（模板 ID）、允许的邮箱提供商域名（完整注册域），以及 Cloudflare Turnstile Site Key；Turnstile Secret Key 可由管理员编辑，但读取或展示时永不回显。腾讯云 SES API 凭证（`TENCENT_SES_SECRET_ID` / `TENCENT_SES_SECRET_KEY`）仅通过环境变量配置，页面不提供编辑表单；未配置时以红色警告提示无法发信，已配置时不展示 SES 凭证相关提示。
+
+管理员登录后，应用外壳每 10 秒读取 `GET /v1/admin/evaluation-worker-status`。没有 Worker 消费者时在导航栏下方显示告警，恢复后自动隐藏；状态接口失败时显示无法确认状态的独立告警。普通用户不请求该接口，也不显示运维状态。
 
 业务路由由 `ProtectedRoute` 统一检查登录状态，管理员路由再检查角色。API 请求统一通过 Axios 实例发送，并设置 `withCredentials: true` 携带 HttpOnly 会话 Cookie；浏览器代码不读取或保存会话令牌。TanStack Query 的 AbortSignal 会传入 Axios，页面卸载或查询失效时可取消请求。
 

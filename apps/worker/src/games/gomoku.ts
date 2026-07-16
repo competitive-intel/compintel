@@ -8,6 +8,7 @@ import {
 } from "@compintel/game-core";
 import type { GomokuReplay, GameResourceLimits } from "@compintel/contracts";
 import type { InteractiveJudgeSession } from "@compintel/judge-client";
+import type { Logger } from "@compintel/logger";
 
 import {
   DEFAULT_RESOURCE_LIMITS,
@@ -47,6 +48,7 @@ export async function runGomokuEvaluation(
   opponentSession: InteractiveJudgeSession,
   userSeat: GomokuSeat = 1,
   resourceLimits: GameResourceLimits = DEFAULT_RESOURCE_LIMITS,
+  logger?: Logger,
 ): Promise<GomokuRunResult> {
   return runInteractiveEvaluation(
     playerSession,
@@ -54,5 +56,6 @@ export async function runGomokuEvaluation(
     userSeat,
     resourceLimits,
     GOMOKU_ADAPTER,
+    logger,
   );
 }
