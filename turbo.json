@@ -5,6 +5,11 @@
       "dependsOn": ["^build"],
       "outputs": ["dist/**"]
     },
+    "@compintel/web#build": {
+      "dependsOn": ["^build"],
+      "env": ["COMPINTEL_GIT_COMMIT", "GITHUB_SHA", "CI_COMMIT_SHA"],
+      "outputs": ["dist/**"]
+    },
     "typecheck": {
       "dependsOn": ["^typecheck"],
       "outputs": []
