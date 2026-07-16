@@ -196,6 +196,11 @@
     background: transparent;
   }
 
+  .markdown-content .shiki {
+    background-color: var(--muted) !important;
+    border: 1px solid var(--border);
+  }
+
   .code-highlight .shiki {
     @apply max-h-160 overflow-auto rounded-md border p-4 font-mono text-xs leading-6 sm:p-6 sm:text-sm;
     margin: 0;
