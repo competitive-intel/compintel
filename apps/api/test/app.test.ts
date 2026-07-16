@@ -76,13 +76,12 @@ test("approved users can list their player names for autocomplete", async () => 
   assert.deepEqual(response.json(), { names: ["alpha", "beta"] });
 });
 
-test("registration creates a pending account", async () => {
+test("registration creates an unverified account", async () => {
   let registeredUsername = "";
   const auth = {
     async register(input: { username: string }) {
       registeredUsername = input.username;
       return userFixture({
-        approvalStatus: "PENDING",
         emailVerified: false,
         email: "new.user@gmail.com",
       });
@@ -103,7 +102,7 @@ test("registration creates a pending account", async () => {
 
   assert.equal(response.statusCode, 201);
   assert.equal(registeredUsername, "new_user");
-  assert.equal(response.json().user.approvalStatus, "PENDING");
+  assert.equal(response.json().user.role, "USER");
   assert.equal(response.json().user.emailVerified, false);
 });
 
@@ -131,7 +130,7 @@ test("login sets an HttpOnly session cookie", async () => {
   assert.match(response.headers["set-cookie"] ?? "", /secret-session-token/);
 });
 
-test("ordinary users cannot access the review queue", async () => {
+test("ordinary users cannot access admin users", async () => {
   const auth = {
     async authenticate() {
       return userFixture();
@@ -269,44 +268,35 @@ test("administrators can create a database-backed built-in program", async () =>
   assert.equal(response.json().latestVersion.language, "CPP");
 });
 
-test("administrators can approve a pending user", async () => {
-  let reviewed: {
-    administratorId: string;
-    userId: string;
-    decision: string;
-  } | null = null;
+test("administrators can ban a user", async () => {
+  let banned: { administratorId: string; userId: string } | null = null;
   const auth = {
     async authenticate() {
       return userFixture({ id: "admin-1", role: "ADMIN" });
     },
-    async reviewUser(
-      administratorId: string,
-      userId: string,
-      input: { decision: string },
-    ) {
-      reviewed = { administratorId, userId, decision: input.decision };
+    async banUser(administratorId: string, userId: string) {
+      banned = { administratorId, userId };
       return {
-        ...userFixture({ id: userId }),
-        reviewedAt: "2026-07-13T09:00:00.000Z",
-        reviewedBy: { id: administratorId, displayName: "平台管理员" },
+        ...userFixture({ id: userId, role: "BANNED" }),
+        submissionCount: 2,
       };
     },
   } as unknown as AuthService;
   const app = buildApp({ ...unusedDependencies, auth });
   const response = await app.inject({
     method: "POST",
-    url: "/v1/admin/users/user-2/review",
+    url: "/v1/admin/users/user-2/ban",
     headers: { cookie: "compintel_session=admin-session" },
-    payload: { decision: "APPROVE" },
   });
   await app.close();
 
   assert.equal(response.statusCode, 200);
-  assert.deepEqual(reviewed, {
+  assert.deepEqual(banned, {
     administratorId: "admin-1",
     userId: "user-2",
-    decision: "APPROVE",
   });
+  assert.equal(response.json().role, "BANNED");
+  assert.equal(response.json().submissionCount, 2);
 });
 
 test("approved users can list public submissions for a game", async () => {
@@ -441,7 +431,6 @@ function baseUserFixture(): CurrentUser {
     email: "member@gmail.com",
     emailVerified: true,
     role: "USER" as const,
-    approvalStatus: "APPROVED" as const,
     createdAt: "2026-07-13T08:00:00.000Z",
   };
 }

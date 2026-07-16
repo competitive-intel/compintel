@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 
-import type { PrismaClient } from "@compintel/db";
+import { Prisma, type PrismaClient } from "@compintel/db";
 
 import { AuthService, hashPassword } from "../src/auth.js";
 import { MemoryEmailSendLimiter } from "../src/email-send-limiter.js";
@@ -19,7 +19,7 @@ function mailSettings(db: PrismaClient): SystemSettingsService {
   });
 }
 
-test("register hashes the password and creates a pending unverified user", async () => {
+test("register hashes the password and creates an unverified user", async () => {
   let passwordHash = "";
   let createdEmail = "";
   let createdNormalized = "";
@@ -54,7 +54,6 @@ test("register hashes the password and creates a pending unverified user", async
           email: data.email,
           emailNormalized: data.emailNormalized,
           emailVerifiedAt: null,
-          approvalStatus: "PENDING",
         });
       },
     },
@@ -89,7 +88,7 @@ test("register hashes the password and creates a pending unverified user", async
 
   assert.match(passwordHash, /^scrypt\$16384\$8\$1\$/);
   assert.ok(!passwordHash.includes("password123"));
-  assert.equal(user.approvalStatus, "PENDING");
+  assert.equal(user.role, "USER");
   assert.equal(user.emailVerified, false);
   assert.equal(createdEmail, "member.name+tag@gmail.com");
   assert.equal(createdNormalized, "membername@gmail.com");
@@ -108,7 +107,6 @@ test("unverified users cannot create a session", async () => {
         return databaseUser({
           passwordHash,
           emailVerifiedAt: null,
-          approvalStatus: "APPROVED",
         });
       },
     },
@@ -123,7 +121,7 @@ test("unverified users cannot create a session", async () => {
   );
 });
 
-test("pending users cannot create a session after email verification", async () => {
+test("banned users cannot create a session", async () => {
   const passwordHash = await hashPassword("password123");
   const db = {
     user: {
@@ -131,7 +129,7 @@ test("pending users cannot create a session after email verification", async () 
         return databaseUser({
           passwordHash,
           emailVerifiedAt: new Date("2026-07-15T08:00:00.000Z"),
-          approvalStatus: "PENDING",
+          role: "BANNED",
         });
       },
     },
@@ -142,11 +140,155 @@ test("pending users cannot create a session after email verification", async () 
     (error: unknown) =>
       error instanceof HttpError &&
       error.statusCode === 403 &&
-      error.code === "ACCOUNT_PENDING",
+      error.code === "ACCOUNT_BANNED",
   );
 });
 
-test("approved verified users receive an opaque persisted session", async () => {
+test("administrators cannot ban themselves", async () => {
+  const db = {
+    user: {
+      async findUnique() {
+        assert.fail("should not look up the target when banning self");
+      },
+    },
+  } as unknown as PrismaClient;
+
+  await assert.rejects(
+    new AuthService(db).banUser("admin-1", "admin-1"),
+    (error: unknown) =>
+      error instanceof HttpError &&
+      error.statusCode === 400 &&
+      error.code === "CANNOT_BAN_SELF",
+  );
+});
+
+test("administrators cannot ban another admin", async () => {
+  const db = {
+    user: {
+      async findUnique() {
+        return {
+          ...databaseUser({
+            passwordHash: "unused",
+            emailVerifiedAt: new Date("2026-07-15T08:00:00.000Z"),
+            role: "ADMIN",
+          }),
+          id: "admin-2",
+          players: [],
+        };
+      },
+    },
+  } as unknown as PrismaClient;
+
+  await assert.rejects(
+    new AuthService(db).banUser("admin-1", "admin-2"),
+    (error: unknown) =>
+      error instanceof HttpError &&
+      error.statusCode === 400 &&
+      error.code === "CANNOT_BAN_ADMIN",
+  );
+});
+
+test("administrators cannot ban an already-banned user", async () => {
+  const db = {
+    user: {
+      async findUnique() {
+        return {
+          ...databaseUser({
+            passwordHash: "unused",
+            emailVerifiedAt: new Date("2026-07-15T08:00:00.000Z"),
+            role: "BANNED",
+          }),
+          id: "user-2",
+          players: [],
+        };
+      },
+    },
+  } as unknown as PrismaClient;
+
+  await assert.rejects(
+    new AuthService(db).banUser("admin-1", "user-2"),
+    (error: unknown) =>
+      error instanceof HttpError &&
+      error.statusCode === 400 &&
+      error.code === "USER_ALREADY_BANNED",
+  );
+});
+
+test("administrators cannot unban a non-banned user", async () => {
+  const db = {
+    user: {
+      async findUnique() {
+        return {
+          ...databaseUser({
+            passwordHash: "unused",
+            emailVerifiedAt: new Date("2026-07-15T08:00:00.000Z"),
+            role: "USER",
+          }),
+          id: "user-2",
+          players: [],
+        };
+      },
+    },
+  } as unknown as PrismaClient;
+
+  await assert.rejects(
+    new AuthService(db).unbanUser("admin-1", "user-2"),
+    (error: unknown) =>
+      error instanceof HttpError &&
+      error.statusCode === 400 &&
+      error.code === "USER_NOT_BANNED",
+  );
+});
+
+test("authenticate rejects banned sessions and deletes them", async () => {
+  const token = "banned-session-token";
+  const tokenHash = createHash("sha256").update(token).digest("hex");
+  let findUniqueArgs:
+    | {
+        where: { tokenHash: string };
+        include: { user: true };
+      }
+    | undefined;
+  let deletedSessionId: string | undefined;
+  const db = {
+    session: {
+      async findUnique(args: {
+        where: { tokenHash: string };
+        include: { user: true };
+      }) {
+        findUniqueArgs = args;
+        return {
+          id: "session-banned",
+          tokenHash,
+          userId: "user-1",
+          expiresAt: new Date("2026-07-22T08:00:00.000Z"),
+          user: databaseUser({
+            passwordHash: "hash",
+            emailVerifiedAt: new Date("2026-07-15T08:00:00.000Z"),
+            role: "BANNED",
+          }),
+        };
+      },
+      async deleteMany({ where }: { where: { id: string } }) {
+        deletedSessionId = where.id;
+        return { count: 1 };
+      },
+    },
+  } as unknown as PrismaClient;
+
+  const user = await new AuthService(db, {
+    now: () => new Date("2026-07-15T08:00:00.000Z"),
+  }).authenticate(token);
+
+  assert.equal(user, null);
+  assert.deepEqual(findUniqueArgs, {
+    where: { tokenHash },
+    include: { user: true },
+  });
+  assert.equal(deletedSessionId, "session-banned");
+});
+
+test("verified users receive an opaque persisted session", async () => {
   const passwordHash = await hashPassword("password123");
   let storedTokenHash = "";
   const db = {
@@ -155,7 +297,6 @@ test("approved verified users receive an opaque persisted session", async () => 
         return databaseUser({
           passwordHash,
           emailVerifiedAt: new Date("2026-07-15T08:00:00.000Z"),
-          approvalStatus: "APPROVED",
         });
       },
     },
@@ -172,7 +313,7 @@ test("approved verified users receive an opaque persisted session", async () => 
     password: "password123",
   });
 
-  assert.equal(session.user.approvalStatus, "APPROVED");
+  assert.equal(session.user.role, "USER");
   assert.equal(session.user.emailVerified, true);
   assert.match(session.token, /^[A-Za-z0-9_-]+$/);
   assert.equal(storedTokenHash.length, 64);
@@ -193,7 +334,6 @@ test("verifyEmail accepts a valid code and clears the challenge", async () => {
           ...databaseUser({
             passwordHash: "hash",
             emailVerifiedAt: null,
-            approvalStatus: "PENDING",
           }),
           emailVerification: {
             codeHash,
@@ -207,7 +347,6 @@ test("verifyEmail accepts a valid code and clears the challenge", async () => {
         return databaseUser({
           passwordHash: "hash",
           emailVerifiedAt: data.emailVerifiedAt,
-          approvalStatus: "PENDING",
         });
       },
     },
@@ -236,7 +375,6 @@ test("verifyEmail returns ok without PII when already verified", async () => {
           ...databaseUser({
             passwordHash: "hash",
             emailVerifiedAt: new Date("2026-07-15T08:00:00.000Z"),
-            approvalStatus: "PENDING",
           }),
           emailVerification: null,
         };
@@ -261,7 +399,6 @@ test("verifyEmail rejects expired codes", async () => {
           ...databaseUser({
             passwordHash: "hash",
             emailVerifiedAt: null,
-            approvalStatus: "PENDING",
           }),
           emailVerification: {
             codeHash,
@@ -291,7 +428,6 @@ test("resendVerification enforces a cooldown window", async () => {
           ...databaseUser({
             passwordHash: "hash",
             emailVerifiedAt: null,
-            approvalStatus: "PENDING",
           }),
           emailVerification: {
             codeHash: "x",
@@ -334,7 +470,6 @@ test("resendVerification keeps the old challenge when SES fails", async () => {
           ...databaseUser({
             passwordHash: "hash",
             emailVerifiedAt: null,
-            approvalStatus: "PENDING",
           }),
           emailVerification: {
             codeHash: "old-hash",
@@ -469,11 +604,8 @@ test("register keeps the reservation after SES success and rolls back on failure
           emailNormalized: data.emailNormalized,
           passwordHash: data.passwordHash,
           role: "USER",
-          status: "PENDING",
           emailVerifiedAt: null,
           createdAt: new Date(),
-          reviewedAt: null,
-          reviewedById: null,
         };
       },
       async delete() {
@@ -535,13 +667,15 @@ test("register keeps the reservation after SES success and rolls back on failure
 
 test("register reclaims stale unverified username or email conflicts", async () => {
   let deletedIds: string[] = [];
+  let reclaimWhere: unknown;
   let created = false;
   const ses: SesClient = {
     async sendVerificationEmail() {},
   };
   const db = {
     user: {
-      async findMany() {
+      async findMany({ where }: { where: unknown }) {
+        reclaimWhere = where;
         return [{ id: "stale-1" }];
       },
       async deleteMany({ where }: { where: { id: { in: string[] } } }) {
@@ -563,7 +697,6 @@ test("register reclaims stale unverified username or email conflicts", async () 
           email: data.email,
           emailNormalized: data.emailNormalized,
           emailVerifiedAt: null,
-          approvalStatus: "PENDING",
         });
       },
     },
@@ -596,8 +729,74 @@ test("register reclaims stale unverified username or email conflicts", async () 
     mailContext,
   );
 
+  assert.deepEqual(reclaimWhere, {
+    emailVerifiedAt: null,
+    role: { not: "BANNED" },
+    createdAt: { lt: new Date("2026-07-14T08:00:00.000Z") },
+    OR: [{ username: "member" }, { emailNormalized: "member@gmail.com" }],
+  });
   assert.deepEqual(deletedIds, ["stale-1"]);
   assert.equal(created, true);
+});
+
+test("register does not reclaim banned unverified conflicts", async () => {
+  let deleteManyCalled = false;
+  const ses: SesClient = {
+    async sendVerificationEmail() {},
+  };
+  const db = {
+    user: {
+      async findMany({ where }: { where: { role?: { not: string } } }) {
+        assert.deepEqual(where.role, { not: "BANNED" });
+        // Banned unverified rows are excluded by the query filter.
+        return [];
+      },
+      async deleteMany() {
+        deleteManyCalled = true;
+        return { count: 0 };
+      },
+      async create() {
+        throw new Prisma.PrismaClientKnownRequestError("Unique constraint", {
+          code: "P2002",
+          clientVersion: "test",
+          meta: { target: ["emailNormalized"] },
+        });
+      },
+    },
+    emailVerification: {
+      async create() {
+        return {};
+      },
+    },
+    systemSettings: {
+      async upsert() {
+        return configuredSettings();
+      },
+    },
+    async $transaction(callback: (tx: unknown) => Promise<unknown>) {
+      return callback(db);
+    },
+  } as unknown as PrismaClient;
+
+  await assert.rejects(
+    new AuthService(db, {
+      ses,
+      settings: mailSettings(db),
+      now: () => new Date("2026-07-15T08:00:00.000Z"),
+    }).register(
+      {
+        username: "banned-user",
+        displayName: "已封禁",
+        email: "banned@gmail.com",
+        password: "password123",
+      },
+      mailContext,
+    ),
+    (error: unknown) =>
+      error instanceof HttpError && error.code === "EMAIL_CONFLICT",
+  );
+
+  assert.equal(deleteManyCalled, false);
 });
 
 test("register fails when SES is not configured", async () => {
@@ -724,7 +923,7 @@ function databaseUser(overrides: {
   email?: string;
   emailNormalized?: string;
   emailVerifiedAt: Date | null;
-  approvalStatus: "PENDING" | "APPROVED" | "REJECTED";
+  role?: "USER" | "BANNED" | "ADMIN";
 }) {
   return {
     id: "user-1",
@@ -734,10 +933,7 @@ function databaseUser(overrides: {
     emailNormalized: overrides.emailNormalized ?? "member@gmail.com",
     emailVerifiedAt: overrides.emailVerifiedAt,
     passwordHash: overrides.passwordHash,
-    role: "USER" as const,
-    approvalStatus: overrides.approvalStatus,
-    reviewedAt: null,
-    reviewedById: null,
+    role: overrides.role ?? ("USER" as const),
     createdAt: new Date("2026-07-13T08:00:00.000Z"),
     updatedAt: new Date("2026-07-13T08:00:00.000Z"),
   };

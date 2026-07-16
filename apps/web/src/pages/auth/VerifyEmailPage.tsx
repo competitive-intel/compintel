@@ -51,7 +51,7 @@ export function VerifyEmailPage() {
     mutationFn: () => verifyEmail({ username: username.trim(), code }),
     onSuccess: (result) => {
       if ("user" in result) {
-        navigate("/pending", { state: { username: result.user.username } });
+        navigate("/login", { state: { username: result.user.username } });
         return;
       }
       navigate("/login", { state: { username } });

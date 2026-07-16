@@ -18,7 +18,6 @@ import {
   registerResponseSchema,
   registerSchema,
   resendVerificationSchema,
-  reviewUserSchema,
   systemSettingsSchema,
   updateGameSchema,
   updateBuiltinPlayerSchema,
@@ -148,15 +147,23 @@ export function buildApp(dependencies: AppDependencies): FastifyInstance {
     return adminUsersResponseSchema.parse({ users: await auth.listUsers() });
   });
 
-  app.post("/v1/admin/users/:userId/review", async (request) => {
+  app.post("/v1/admin/users/:userId/ban", async (request) => {
     const administrator = await requireAdministrator(
       auth,
       request.headers.cookie,
     );
     const { userId } = userParamsSchema.parse(request.params);
-    const input = reviewUserSchema.parse(request.body);
+    return adminUserSchema.parse(await auth.banUser(administrator.id, userId));
+  });
+
+  app.post("/v1/admin/users/:userId/unban", async (request) => {
+    const administrator = await requireAdministrator(
+      auth,
+      request.headers.cookie,
+    );
+    const { userId } = userParamsSchema.parse(request.params);
     return adminUserSchema.parse(
-      await auth.reviewUser(administrator.id, userId, input),
+      await auth.unbanUser(administrator.id, userId),
     );
   });
 

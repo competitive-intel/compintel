@@ -21,7 +21,6 @@ export function userFixture(overrides: Partial<CurrentUser> = {}): CurrentUser {
     email: "member@gmail.com",
     emailVerified: true,
     role: "USER",
-    approvalStatus: "APPROVED",
     createdAt,
     ...overrides,
   };
@@ -32,8 +31,7 @@ export function adminUserFixture(
 ): AdminUser {
   return {
     ...userFixture(),
-    reviewedAt: null,
-    reviewedBy: null,
+    submissionCount: 0,
     ...overrides,
   };
 }
