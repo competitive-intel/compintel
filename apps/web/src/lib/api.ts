@@ -7,6 +7,7 @@ import {
   adminUsersResponseSchema,
   authResponseSchema,
   captchaConfigSchema,
+  evaluationWorkerStatusSchema,
   gameDetailSchema,
   gameListSchema,
   okResponseSchema,
@@ -25,6 +26,7 @@ import {
   type CreateBuiltinPlayerVersionInput,
   type CreatePlayerInput,
   type CurrentUser,
+  type EvaluationWorkerStatus,
   type GameDetail,
   type GameSummary,
   type LoginInput,
@@ -133,6 +135,20 @@ export async function getCurrentUser(
       "登录状态加载失败",
     )
   ).user;
+}
+
+export async function getEvaluationWorkerStatus(
+  signal?: AbortSignal,
+): Promise<EvaluationWorkerStatus> {
+  return request(
+    {
+      method: "GET",
+      url: "/v1/admin/evaluation-worker-status",
+      ...withSignal(signal),
+    },
+    evaluationWorkerStatusSchema,
+    "评测 Worker 状态加载失败",
+  );
 }
 
 export async function getAdminUsers(

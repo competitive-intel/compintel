@@ -1,7 +1,7 @@
 import type { Evaluation } from "@compintel/contracts";
 import { ChevronDownIcon } from "lucide-react";
 
-import { GomokuReplayBoard } from "./GomokuReplayBoard";
+import { GameReplayBoard } from "../games";
 import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
 import { Badge } from "./ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
@@ -94,7 +94,7 @@ export function EvaluationResultCard({
                   <h4 id={`replay-${evaluation.id}`} className="font-medium">
                     对局回放
                   </h4>
-                  <GomokuReplayBoard replay={evaluation.replay} />
+                  <GameReplayBoard replay={evaluation.replay} />
                 </section>
               </>
             )}

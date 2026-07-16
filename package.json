@@ -7,7 +7,7 @@
     "build": "turbo run build",
     "dev": "turbo run dev",
     "lint": "eslint . --max-warnings 0",
-    "start": "turbo run dev --filter=@compintel/api --filter=@compintel/web --env-mode=loose",
+    "start": "turbo run dev --filter=@compintel/api --filter=@compintel/worker --filter=@compintel/web --env-mode=loose",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
     "db:generate": "pnpm --filter @compintel/db db:generate",

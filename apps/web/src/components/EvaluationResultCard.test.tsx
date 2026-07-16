@@ -1,7 +1,9 @@
 import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { evaluationFixture, replayFixture } from "../test/fixtures";
+import { evaluationFixture } from "../test/fixtures";
+import { gomokuReplayFixture } from "../games/gomoku.test-fixtures";
+import { quoridorReplayFixture } from "../games/quoridor.test-fixtures";
 import { renderWithProviders } from "../test/render";
 import { EvaluationResultCard } from "./EvaluationResultCard";
 
@@ -64,7 +66,7 @@ describe("EvaluationResultCard", () => {
       compileLog: "compiler output",
       stderr: "standard error",
       stdout: "standard output",
-      replay: replayFixture(),
+      replay: gomokuReplayFixture(),
     });
 
     expect(screen.getByText("程序异常退出")).toBeInTheDocument();
@@ -77,7 +79,7 @@ describe("EvaluationResultCard", () => {
   });
 
   it("collapses and expands an opponent result", () => {
-    renderCard({ replay: replayFixture() });
+    renderCard({ replay: gomokuReplayFixture() });
 
     const trigger = screen.getByRole("button", {
       name: "展开或收起 基准程序 的评测结果",
@@ -95,6 +97,13 @@ describe("EvaluationResultCard", () => {
     expect(screen.queryByText("CPU 时间")).not.toBeInTheDocument();
     fireEvent.click(trigger);
     expect(screen.getByText("CPU 时间")).toBeVisible();
+  });
+
+  it("selects the quoridor replay board by game slug", () => {
+    renderCard({ replay: quoridorReplayFixture() });
+    expect(
+      screen.getByRole("img", { name: "路墙棋对局终局棋盘" }),
+    ).toBeInTheDocument();
   });
 });
 

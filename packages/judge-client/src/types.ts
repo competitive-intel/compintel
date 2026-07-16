@@ -53,7 +53,13 @@ export interface CompileResult {
 export interface InteractiveRunOptions {
   moveCpuLimitNs: number;
   totalCpuLimitNs: number;
+  /** Per-turn wall-clock budget for a single playTurn. */
   wallLimitNs: number;
+  /**
+   * Whole-process wall-clock budget for the long-running interactive session.
+   * Defaults to 300s when omitted.
+   */
+  processClockLimitNs?: number;
   maxOutputBytes: number;
   memoryLimitBytes: number;
   stackLimitBytes: number;

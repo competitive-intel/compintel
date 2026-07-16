@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  gameReplaySchema,
   submissionDetailSchema,
   submissionRecordListSchema,
 } from "../src/index.js";
@@ -31,6 +32,37 @@ test("accepts an empty paginated submission record list", () => {
     total: 0,
   });
   assert.equal(result.total, 0);
+});
+
+test("validates quoridor pawn and wall replay moves", () => {
+  const replay = gameReplaySchema.parse({
+    gameSlug: "quoridor",
+    userSeat: 1,
+    moves: [
+      { type: 0, x: 4, y: 1, seat: 0 },
+      { type: 1, x: 3, y: 4, orientation: 1, seat: 1 },
+    ],
+    result: { type: "playing" },
+  });
+  assert.equal(replay.gameSlug, "quoridor");
+  assert.equal(replay.moves.length, 2);
+  assert.equal(
+    gameReplaySchema.parse({
+      gameSlug: "quoridor",
+      userSeat: 1,
+      moves: [],
+      result: { type: "move_limit" },
+    }).result.type,
+    "move_limit",
+  );
+  assert.throws(() =>
+    gameReplaySchema.parse({
+      gameSlug: "quoridor",
+      userSeat: 0,
+      moves: [{ type: 1, x: 0, y: 4, orientation: 1, seat: 0 }],
+      result: { type: "playing" },
+    }),
+  );
 });
 
 test("exposes source code and opponent results on submission details", () => {

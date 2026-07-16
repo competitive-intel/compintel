@@ -1,6 +1,9 @@
 import { z } from "zod";
 
+import { gameReplaySchema } from "./games/index.js";
 import { cppSourceSchema } from "./player.js";
+
+export * from "./games/index.js";
 
 export const PLAYER_EVALUATION_QUEUE = "player-evaluations";
 export const PLAYER_EVALUATION_JOB = "evaluate-player-version";
@@ -36,30 +39,6 @@ export const submissionEvaluationStatusSchema = z.enum([
   "FINISHED",
 ]);
 
-export const gomokuReplayMoveSchema = z.object({
-  x: z.number().int().min(0),
-  y: z.number().int().min(0),
-  seat: z.union([z.literal(0), z.literal(1)]),
-});
-
-export const gomokuReplayResultSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("playing") }),
-  z.object({
-    type: z.literal("win"),
-    winner: z.union([z.literal(0), z.literal(1)]),
-  }),
-  z.object({ type: z.literal("draw") }),
-]);
-
-export const gomokuReplaySchema = z.object({
-  gameSlug: z.literal("gomoku"),
-  height: z.number().int().positive(),
-  width: z.number().int().positive(),
-  userSeat: z.union([z.literal(0), z.literal(1)]),
-  moves: z.array(gomokuReplayMoveSchema),
-  result: gomokuReplayResultSchema,
-});
-
 export const evaluationSchema = z.object({
   id: z.string(),
   opponentVersionId: z.string(),
@@ -78,7 +57,7 @@ export const evaluationSchema = z.object({
   wallTimeNs: z.string().nullable(),
   memoryBytes: z.string().nullable(),
   errorMessage: z.string().nullable(),
-  replay: gomokuReplaySchema.nullable(),
+  replay: gameReplaySchema.nullable(),
   createdAt: z.iso.datetime(),
   startedAt: z.iso.datetime().nullable(),
   finishedAt: z.iso.datetime().nullable(),
@@ -131,4 +110,3 @@ export type Evaluation = z.infer<typeof evaluationSchema>;
 export type SubmissionRecord = z.infer<typeof submissionRecordSchema>;
 export type SubmissionRecordList = z.infer<typeof submissionRecordListSchema>;
 export type SubmissionDetail = z.infer<typeof submissionDetailSchema>;
-export type GomokuReplay = z.infer<typeof gomokuReplaySchema>;
