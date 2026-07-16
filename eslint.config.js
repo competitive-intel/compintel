@@ -26,14 +26,24 @@ export default tseslint.config(
   ...tseslint.configs.recommended,
   {
     files: ["**/*.{ts,tsx}"],
-    languageOptions: {
-      globals: globals.node,
-    },
     rules: {
       "@typescript-eslint/no-unused-vars": [
         "error",
         { argsIgnorePattern: "^_" },
       ],
+    },
+  },
+  {
+    files: [
+      "apps/api/**/*.{ts,tsx}",
+      "apps/worker/**/*.{ts,tsx}",
+      "packages/config/**/*.{ts,tsx}",
+      "packages/db/**/*.{ts,tsx}",
+      "packages/judge-client/**/*.{ts,tsx}",
+      "packages/*/test/**/*.{ts,tsx}",
+    ],
+    languageOptions: {
+      globals: globals.node,
     },
   },
   {
