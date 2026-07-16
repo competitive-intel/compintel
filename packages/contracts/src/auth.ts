@@ -1,7 +1,6 @@
 import { z } from "zod";
 
-export const userRoleSchema = z.enum(["USER", "ADMIN"]);
-export const approvalStatusSchema = z.enum(["PENDING", "APPROVED", "REJECTED"]);
+export const userRoleSchema = z.enum(["USER", "BANNED", "ADMIN"]);
 
 const turnstileTokenSchema = z.string().trim().min(1).max(2048).optional();
 
@@ -70,7 +69,6 @@ export const currentUserSchema = z.object({
   email: z.string(),
   emailVerified: z.boolean(),
   role: userRoleSchema,
-  approvalStatus: approvalStatusSchema,
   createdAt: z.iso.datetime(),
 });
 
@@ -87,16 +85,11 @@ export const verifyEmailResponseSchema = z.union([
 ]);
 
 export const adminUserSchema = currentUserSchema.extend({
-  reviewedAt: z.iso.datetime().nullable(),
-  reviewedBy: z.object({ id: z.string(), displayName: z.string() }).nullable(),
+  submissionCount: z.number().int().nonnegative(),
 });
 
 export const adminUsersResponseSchema = z.object({
   users: z.array(adminUserSchema),
-});
-
-export const reviewUserSchema = z.object({
-  decision: z.enum(["APPROVE", "REJECT"]),
 });
 
 export type RegisterInput = z.infer<typeof registerSchema>;
@@ -105,6 +98,5 @@ export type VerifyEmailInput = z.infer<typeof verifyEmailSchema>;
 export type ResendVerificationInput = z.infer<typeof resendVerificationSchema>;
 export type CurrentUser = z.infer<typeof currentUserSchema>;
 export type AdminUser = z.infer<typeof adminUserSchema>;
-export type ReviewUserInput = z.infer<typeof reviewUserSchema>;
 export type OkResponse = z.infer<typeof okResponseSchema>;
 export type VerifyEmailResponse = z.infer<typeof verifyEmailResponseSchema>;

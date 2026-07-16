@@ -30,7 +30,6 @@ import {
   type LoginInput,
   type RegisterInput,
   type ResendVerificationInput,
-  type ReviewUserInput,
   type SubmissionAccepted,
   type SubmissionDetail,
   type SubmissionRecordList,
@@ -148,18 +147,25 @@ export async function getAdminUsers(
   ).users;
 }
 
-export async function reviewUser(
-  userId: string,
-  input: ReviewUserInput,
-): Promise<AdminUser> {
+export async function banUser(userId: string): Promise<AdminUser> {
   return request(
     {
       method: "POST",
-      url: `/v1/admin/users/${encodeURIComponent(userId)}/review`,
-      data: input,
+      url: `/v1/admin/users/${encodeURIComponent(userId)}/ban`,
     },
     adminUserSchema,
-    "审核失败",
+    "封禁失败",
+  );
+}
+
+export async function unbanUser(userId: string): Promise<AdminUser> {
+  return request(
+    {
+      method: "POST",
+      url: `/v1/admin/users/${encodeURIComponent(userId)}/unban`,
+    },
+    adminUserSchema,
+    "解封失败",
   );
 }
 

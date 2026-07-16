@@ -59,7 +59,7 @@ describe("RegisterPage", () => {
     const confirmation = screen.getByLabelText("确认密码");
     await userEvent.clear(confirmation);
     await userEvent.type(confirmation, "password123");
-    await userEvent.click(screen.getByRole("button", { name: "提交注册申请" }));
+    await userEvent.click(screen.getByRole("button", { name: "注册" }));
 
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(register).toHaveBeenCalledWith({
@@ -82,7 +82,7 @@ describe("RegisterPage", () => {
       "用户名已被使用",
     );
 
-    await userEvent.click(screen.getByRole("button", { name: "提交注册申请" }));
+    await userEvent.click(screen.getByRole("button", { name: "注册" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "注册失败，请稍后重试",
     );
@@ -107,8 +107,10 @@ describe("RegisterPage", () => {
       screen.getByRole("button", { name: "mock-turnstile" }),
     ).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "mock-turnstile" }));
-    await userEvent.click(screen.getByRole("button", { name: "提交注册申请" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "mock-turnstile" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "注册" }));
 
     expect(await screen.findByText("邮箱域名不被允许")).toBeInTheDocument();
     expect(register).toHaveBeenLastCalledWith({
@@ -119,12 +121,14 @@ describe("RegisterPage", () => {
       turnstileToken: "test-turnstile-token-1",
     });
 
-    await userEvent.click(screen.getByRole("button", { name: "提交注册申请" }));
+    await userEvent.click(screen.getByRole("button", { name: "注册" }));
     expect(screen.getByText("请先完成人机验证")).toBeInTheDocument();
     expect(register).toHaveBeenCalledTimes(2);
 
-    await userEvent.click(screen.getByRole("button", { name: "mock-turnstile" }));
-    await userEvent.click(screen.getByRole("button", { name: "提交注册申请" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "mock-turnstile" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "注册" }));
 
     expect(register).toHaveBeenLastCalledWith({
       displayName: "新用户",
@@ -142,5 +146,5 @@ async function fillRegistration(confirmation: string) {
   await userEvent.type(screen.getByLabelText("邮箱"), "new.user@gmail.com");
   await userEvent.type(screen.getByLabelText("密码"), "password123");
   await userEvent.type(screen.getByLabelText("确认密码"), confirmation);
-  await userEvent.click(screen.getByRole("button", { name: "提交注册申请" }));
+  await userEvent.click(screen.getByRole("button", { name: "注册" }));
 }

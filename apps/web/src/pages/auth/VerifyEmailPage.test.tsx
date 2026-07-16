@@ -58,7 +58,7 @@ afterEach(() => vi.clearAllMocks());
 describe("VerifyEmailPage", () => {
   it("submits the verification code", async () => {
     vi.mocked(verifyEmail).mockResolvedValue({
-      user: userFixture({ emailVerified: true, approvalStatus: "PENDING" }),
+      user: userFixture({ emailVerified: true }),
     });
     renderWithProviders(<VerifyEmailPage />, {
       initialEntries: [
@@ -74,7 +74,7 @@ describe("VerifyEmailPage", () => {
       username: "member",
       code: "123456",
     });
-    expect(navigate).toHaveBeenCalledWith("/pending", {
+    expect(navigate).toHaveBeenCalledWith("/login", {
       state: { username: "member" },
     });
   });

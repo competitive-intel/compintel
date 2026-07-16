@@ -12,7 +12,6 @@ import type {
   LoginInput,
   RegisterInput,
   ResendVerificationInput,
-  ReviewUserInput,
   VerifyEmailInput,
   VerifyEmailResponse,
 } from "@compintel/contracts";
@@ -332,11 +331,8 @@ export class AuthService {
     if (user.emailVerifiedAt === null) {
       throw new HttpError(403, "请先完成邮箱验证", "EMAIL_UNVERIFIED");
     }
-    if (user.approvalStatus === "PENDING") {
-      throw new HttpError(403, "账号正在等待管理员审核", "ACCOUNT_PENDING");
-    }
-    if (user.approvalStatus === "REJECTED") {
-      throw new HttpError(403, "账号注册申请未通过审核", "ACCOUNT_REJECTED");
+    if (user.role === "BANNED") {
+      throw new HttpError(403, "账号已被封禁", "ACCOUNT_BANNED");
     }
 
     const token = randomBytes(32).toString("base64url");
@@ -356,7 +352,7 @@ export class AuthService {
     if (session === null) return null;
     if (
       session.expiresAt.getTime() <= this.now().getTime() ||
-      session.user.approvalStatus !== "APPROVED" ||
+      session.user.role === "BANNED" ||
       session.user.emailVerifiedAt === null
     ) {
       await this.db.session.deleteMany({ where: { id: session.id } });
@@ -374,56 +370,87 @@ export class AuthService {
 
   async listUsers(): Promise<AdminUser[]> {
     const users = await this.db.user.findMany({
-      orderBy: [{ approvalStatus: "asc" }, { createdAt: "desc" }],
-      include: {
-        reviewedBy: { select: { id: true, displayName: true } },
-      },
+      orderBy: [{ role: "asc" }, { createdAt: "desc" }],
+      include: adminUserPlayersInclude,
     });
-    return users.map(serializeAdminUser);
+    return users.map((user) =>
+      serializeAdminUser(user, countUserSubmissions(user.players)),
+    );
   }
 
-  async reviewUser(
-    administratorId: string,
-    userId: string,
-    input: ReviewUserInput,
-  ): Promise<AdminUser> {
-    if (administratorId === userId) {
-      throw new HttpError(400, "不能审核自己的账号", "CANNOT_REVIEW_SELF");
-    }
-    const status = input.decision === "APPROVE" ? "APPROVED" : "REJECTED";
-    const existing = await this.db.user.findUnique({ where: { id: userId } });
-    if (existing === null) {
-      throw new HttpError(404, "用户不存在", "USER_NOT_FOUND");
-    }
-    if (existing.role === "ADMIN") {
-      throw new HttpError(400, "不能审核管理员账号", "CANNOT_REVIEW_ADMIN");
-    }
-    if (existing.emailVerifiedAt === null) {
-      throw new HttpError(
-        400,
-        "该用户尚未完成邮箱验证，暂不能审核",
-        "EMAIL_UNVERIFIED",
-      );
-    }
+  async banUser(administratorId: string, userId: string): Promise<AdminUser> {
+    await this.requireModerationTarget(administratorId, userId, {
+      selfMessage: "不能封禁自己的账号",
+      adminMessage: "不能封禁管理员账号",
+      allowedRoles: ["USER"],
+      roleError: {
+        message: "该账号已被封禁",
+        code: "USER_ALREADY_BANNED",
+      },
+    });
 
     const user = await this.db.$transaction(async (tx) => {
       const updated = await tx.user.update({
         where: { id: userId },
-        data: {
-          approvalStatus: status,
-          reviewedAt: this.now(),
-          reviewedById: administratorId,
-        },
-        include: {
-          reviewedBy: { select: { id: true, displayName: true } },
-        },
+        data: { role: "BANNED" },
+        include: adminUserPlayersInclude,
       });
-      if (status === "REJECTED") {
-        await tx.session.deleteMany({ where: { userId } });
-      }
+      await tx.session.deleteMany({ where: { userId } });
       return updated;
     });
-    return serializeAdminUser(user);
+    return serializeAdminUser(user, countUserSubmissions(user.players));
+  }
+
+  async unbanUser(administratorId: string, userId: string): Promise<AdminUser> {
+    await this.requireModerationTarget(administratorId, userId, {
+      selfMessage: "不能解封自己的账号",
+      adminMessage: "不能解封管理员账号",
+      allowedRoles: ["BANNED"],
+      roleError: {
+        message: "该账号未被封禁",
+        code: "USER_NOT_BANNED",
+      },
+    });
+
+    const user = await this.db.user.update({
+      where: { id: userId },
+      data: { role: "USER" },
+      include: adminUserPlayersInclude,
+    });
+    return serializeAdminUser(user, countUserSubmissions(user.players));
+  }
+
+  private async requireModerationTarget(
+    administratorId: string,
+    userId: string,
+    options: {
+      selfMessage: string;
+      adminMessage: string;
+      allowedRoles: ReadonlyArray<"USER" | "BANNED">;
+      roleError: { message: string; code: string };
+    },
+  ) {
+    if (administratorId === userId) {
+      throw new HttpError(400, options.selfMessage, "CANNOT_BAN_SELF");
+    }
+    const existing = await this.db.user.findUnique({
+      where: { id: userId },
+      include: adminUserPlayersInclude,
+    });
+    if (existing === null) {
+      throw new HttpError(404, "用户不存在", "USER_NOT_FOUND");
+    }
+    if (existing.role === "ADMIN") {
+      throw new HttpError(400, options.adminMessage, "CANNOT_BAN_ADMIN");
+    }
+    if (!isAllowedModerationRole(existing.role, options.allowedRoles)) {
+      throw new HttpError(
+        400,
+        options.roleError.message,
+        options.roleError.code,
+      );
+    }
+    return existing;
   }
 
   /**
@@ -482,8 +509,10 @@ export class AuthService {
   }
 
   /**
-   * If an unverified account has held the username or email for longer than
-   * UNVERIFIED_ACCOUNT_TTL_MS, delete it (cascades sessions + verification).
+   * If an unverified (non-banned) account has held the username or email for
+   * longer than UNVERIFIED_ACCOUNT_TTL_MS, delete it (cascades sessions +
+   * verification). Banned accounts are kept so a ban cannot be bypassed by
+   * waiting for reclaim and re-registering.
    */
   private async reclaimStaleUnverifiedConflicts(
     username: string,
@@ -493,6 +522,7 @@ export class AuthService {
     const stale = await this.db.user.findMany({
       where: {
         emailVerifiedAt: null,
+        role: { not: "BANNED" },
         createdAt: { lt: cutoff },
         OR: [{ username }, { emailNormalized }],
       },
@@ -586,7 +616,6 @@ function serializeUser(user: {
   email: string;
   emailVerifiedAt: Date | null;
   role: CurrentUser["role"];
-  approvalStatus: CurrentUser["approvalStatus"];
   createdAt: Date;
 }): CurrentUser {
   return {
@@ -596,20 +625,38 @@ function serializeUser(user: {
     email: user.email,
     emailVerified: user.emailVerifiedAt !== null,
     role: user.role,
-    approvalStatus: user.approvalStatus,
     createdAt: user.createdAt.toISOString(),
   };
 }
 
-function serializeAdminUser(
-  user: Parameters<typeof serializeUser>[0] & {
-    reviewedAt: Date | null;
-    reviewedBy: { id: string; displayName: string } | null;
+const adminUserPlayersInclude = {
+  players: {
+    where: { kind: "USER" as const },
+    select: {
+      _count: { select: { versions: true } },
+    },
   },
+};
+
+function isAllowedModerationRole(
+  role: string,
+  allowedRoles: ReadonlyArray<"USER" | "BANNED">,
+): role is "USER" | "BANNED" {
+  return (allowedRoles as ReadonlyArray<string>).includes(role);
+}
+
+function countUserSubmissions(
+  players: Array<{ _count: { versions: number } }>,
+): number {
+  return players.reduce((total, player) => total + player._count.versions, 0);
+}
+
+function serializeAdminUser(
+  user: Parameters<typeof serializeUser>[0],
+  submissionCount: number,
 ): AdminUser {
   return {
     ...serializeUser(user),
-    reviewedAt: user.reviewedAt?.toISOString() ?? null,
-    reviewedBy: user.reviewedBy,
+    submissionCount,
   };
 }

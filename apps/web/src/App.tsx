@@ -7,7 +7,6 @@ import { AdminGamesPage } from "./pages/admin/AdminGamesPage";
 import { AdminSystemSettingsPage } from "./pages/admin/AdminSystemSettingsPage";
 import { AdminUsersPage } from "./pages/admin/AdminUsersPage";
 import { LoginPage } from "./pages/auth/LoginPage";
-import { PendingApprovalPage } from "./pages/auth/PendingApprovalPage";
 import { RegisterPage } from "./pages/auth/RegisterPage";
 import { VerifyEmailPage } from "./pages/auth/VerifyEmailPage";
 import { GameDetailPage } from "./pages/games/GameDetailPage";
@@ -22,7 +21,6 @@ export function App() {
         <Route path="login" element={<LoginPage />} />
         <Route path="register" element={<RegisterPage />} />
         <Route path="verify-email" element={<VerifyEmailPage />} />
-        <Route path="pending" element={<PendingApprovalPage />} />
       </Route>
       <Route element={<ProtectedRoute />}>
         <Route element={<AppShell />}>

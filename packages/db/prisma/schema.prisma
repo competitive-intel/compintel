@@ -51,13 +51,8 @@ enum MatchOutcome {
 
 enum UserRole {
   USER
+  BANNED
   ADMIN
-}
-
-enum ApprovalStatus {
-  PENDING
-  APPROVED
-  REJECTED
 }
 
 model User {
@@ -69,11 +64,6 @@ model User {
   emailVerifiedAt   DateTime?
   passwordHash      String
   role              UserRole           @default(USER)
-  approvalStatus    ApprovalStatus     @default(PENDING)
-  reviewedAt        DateTime?
-  reviewedById      String?
-  reviewedBy        User?              @relation("UserReviews", fields: [reviewedById], references: [id], onDelete: SetNull)
-  reviewedUsers     User[]             @relation("UserReviews")
   sessions          Session[]
   players           Player[]
   emailVerification EmailVerification?
@@ -81,7 +71,7 @@ model User {
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
 
-  @@index([approvalStatus, createdAt])
+  @@index([role, createdAt])
 }
 
 model EmailVerification {

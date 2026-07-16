@@ -2,9 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  adminUserSchema,
   registerSchema,
-  reviewUserSchema,
   updateSystemSettingsSchema,
+  userRoleSchema,
   verifyEmailSchema,
 } from "../src/index.js";
 
@@ -45,13 +46,35 @@ test("verify email schema accepts six-digit codes", () => {
   );
 });
 
-test("user review accepts only explicit decisions", () => {
+test("user role includes banned accounts", () => {
+  assert.equal(userRoleSchema.safeParse("USER").success, true);
+  assert.equal(userRoleSchema.safeParse("BANNED").success, true);
+  assert.equal(userRoleSchema.safeParse("ADMIN").success, true);
+  assert.equal(userRoleSchema.safeParse("PENDING").success, false);
+});
+
+test("admin user includes submission count", () => {
+  const parsed = adminUserSchema.parse({
+    id: "u1",
+    username: "alice",
+    displayName: "Alice",
+    email: "alice@gmail.com",
+    emailVerified: true,
+    role: "USER",
+    createdAt: "2026-07-16T00:00:00.000Z",
+    submissionCount: 3,
+  });
+  assert.equal(parsed.submissionCount, 3);
   assert.equal(
-    reviewUserSchema.safeParse({ decision: "APPROVE" }).success,
-    true,
-  );
-  assert.equal(
-    reviewUserSchema.safeParse({ decision: "DELETE" }).success,
+    adminUserSchema.safeParse({
+      id: "u1",
+      username: "alice",
+      displayName: "Alice",
+      email: "alice@gmail.com",
+      emailVerified: true,
+      role: "USER",
+      createdAt: "2026-07-16T00:00:00.000Z",
+    }).success,
     false,
   );
 });

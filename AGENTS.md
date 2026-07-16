@@ -10,12 +10,12 @@ CompIntel 是一个面向算法竞赛选手的通用 AI 对战平台。用户提
 
 当前已经打通五子棋 MVP 的主要闭环：
 
-- HttpOnly Cookie 会话认证、注册申请、邮箱验证和管理员审核；不再接受客户端提供的 `x-user-id`。
+- HttpOnly Cookie 会话认证、注册、邮箱验证与管理员封禁；不再接受客户端提供的 `x-user-id`。
 - 管理员维护游戏目录、发布状态以及数据库中的平台内置 C++ Player；可在系统设置中配置腾讯云 SES 发件地址/模板与允许的邮箱提供商。SES API 密钥通过环境变量 `TENCENT_SES_SECRET_ID` / `TENCENT_SES_SECRET_KEY` 配置。
-- 审核通过的用户查看已发布游戏，创建 Player 或提交不可变的新版本。
+- 已验证邮箱且未封禁的用户查看已发布游戏，创建 Player 或提交不可变的新版本；每个游戏 24 小时滑动窗口内最多提交 50 次。
 - 每个用户版本会对同一游戏下所有启用的平台 Player 最新版本各创建一条 Evaluation。
 - API 使用 BullMQ 投递任务；Worker 分别编译用户和平台 C++ 源码，并通过 go-judge `/stream` turn-control 驱动五子棋对局。
-- 前端提供登录、注册、邮箱验证、游戏目录/详情、提交、公开评测列表/详情、五子棋回放、用户审核、游戏管理和系统设置页面。
+- 前端提供登录、注册、邮箱验证、游戏目录/详情、提交、公开评测列表/详情、五子棋回放、用户管理、游戏管理和系统设置页面。
 
 尚未实现或只保留了数据模型骨架的能力包括：用户之间的正式 Match 调度、排行榜、评分及评分变更、对象存储、生产部署流水线和完整 Playwright E2E。不要在文档或代码中把这些描述为已完成。
 
@@ -52,8 +52,8 @@ CompIntel 是一个面向算法竞赛选手的通用 AI 对战平台。用户提
 
 - API 前缀为 `/v1`，健康检查为 `/health`。请求和响应必须继续使用 `packages/contracts` 的 Zod Schema 校验。
 - 会话令牌只通过 HttpOnly、SameSite=Lax Cookie 传递，数据库只保存令牌 SHA-256；浏览器不得读取或持久化原始 token。
-- 注册用户默认为 `PENDING`。受保护请求每次检查会话、过期时间和 `APPROVED` 状态；管理接口还必须检查 `ADMIN` 角色。
-- 当前游戏目录、详情、提交和公开评测记录都要求审核通过的登录用户。评测读取是平台内公开的，不按 Player 所有者隔离；写操作必须检查所有权。
+- 注册用户默认为 `USER`。受保护请求每次检查会话、过期时间、邮箱已验证且 `role !== BANNED`；管理接口还必须检查 `ADMIN` 角色。
+- 当前游戏目录、详情、提交和公开评测记录都要求已登录且未封禁的用户。评测读取是平台内公开的，不按 Player 所有者隔离；写操作必须检查所有权。
 - API 只创建记录并投递耗时任务，不得在 HTTP 请求中编译或运行程序。
 - 当前数据库事务和 BullMQ 入队不是原子操作。入队失败应把对应 Evaluation 落为 `FINISHED / INTERNAL_ERROR`；未来再通过 outbox/补偿扫描完善。
 
@@ -85,7 +85,7 @@ CompIntel 是一个面向算法竞赛选手的通用 AI 对战平台。用户提
 
 ## 前端约定
 
-- 当前路由以 `apps/web/src/App.tsx` 为准：`/login`、`/register`、`/verify-email`、`/pending`、`/games`、游戏详情/提交记录、评测详情、`/admin/users`、`/admin/games` 和 `/admin/settings`。
+- 当前路由以 `apps/web/src/App.tsx` 为准：`/login`、`/register`、`/verify-email`、`/games`、游戏详情/提交记录、评测详情、`/admin/users`、`/admin/games` 和 `/admin/settings`。
 - 浏览器只访问公开 API，不直连 PostgreSQL、Redis 或 go-judge。API 客户端统一放在 `apps/web/src/lib/api.ts`，设置 `withCredentials: true` 并校验响应 Schema。
 - 服务端状态使用 TanStack Query。进行中的评测允许轮询；不要在没有双向通信需求时引入新的 WebSocket 通道。
 - 延续 Tailwind CSS v4 与现有 shadcn/ui 组件风格。基础组件放在 `components/ui`，页面按 `auth`、`games`、`submissions`、`admin` 领域组织。

@@ -76,7 +76,7 @@ export function AppShell() {
                   游戏管理
                 </NavLink>
                 <NavLink className={navLinkClassName} to="/admin/users">
-                  用户审核
+                  用户管理
                 </NavLink>
                 <NavLink className={navLinkClassName} to="/admin/settings">
                   系统设置
@@ -131,7 +131,7 @@ export function AppShell() {
                       <DropdownMenuItem asChild>
                         <NavLink to="/admin/users">
                           <ShieldCheck />
-                          用户审核
+                          用户管理
                         </NavLink>
                       </DropdownMenuItem>
                       <DropdownMenuItem asChild>

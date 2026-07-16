@@ -2,11 +2,11 @@
 
 CompIntel 是一个面向算法竞赛选手的通用 AI 对战平台。参赛者使用 C++ 编写并提交 Player，平台在受限沙箱中完成编译和运行，驱动长驻进程逐回合对战，并保存评测结果与回放。
 
-> 项目已支持手动部署，当前已打通五子棋 MVP 的账号审核、游戏目录、Player 提交、多平台对手评测、加权分数和回放闭环；自动部署流水线尚未提供。
+> 项目已支持手动部署，当前已打通五子棋 MVP 的邮箱验证与账号封禁、游戏目录、Player 提交、多平台对手评测、加权分数和回放闭环；自动部署流水线尚未提供。
 
 ## 核心能力
 
-- HttpOnly Cookie 会话、注册申请与管理员审核
+- HttpOnly Cookie 会话、注册与邮箱验证、管理员封禁
 - 管理游戏目录、用户 Player 与数据库中的平台 C++ Player
 - 为每个不可变 Player 版本向全部启用平台对手分别创建异步 Evaluation
 - 隔离运行不可信的 C++ 程序，并限制时间、内存、输出和进程数量
@@ -85,7 +85,7 @@ pnpm --filter @compintel/worker dev
 pnpm --filter @compintel/web dev
 ```
 
-先使用 seed 创建的管理员登录，在“用户审核”页面批准注册账号，并在“游戏管理”页面维护游戏目录和数据库中的内置 C++ 程序。至少启用一个平台程序后，审核通过的用户即可从游戏详情页提交 C++ Player，并在公开评测记录中查看所有用户的不可变源码版本及平台对手结果。身份验证接口见 `docs/api/authentication.md`，游戏与内置程序接口见 `docs/api/games.md`，Player 提交与公开评测接口见 `docs/api/player-evaluations.md`。运行 `pnpm typecheck` 和 `pnpm test` 可执行仓库的静态检查与测试。
+先使用 seed 创建的管理员登录，在“游戏管理”页面维护游戏目录和数据库中的内置 C++ 程序。至少启用一个平台程序后，已验证邮箱的用户即可从游戏详情页提交 C++ Player，并在公开评测记录中查看所有用户的不可变源码版本及平台对手结果。管理员可在“用户管理”页面封禁或解封账号。身份验证接口见 `docs/api/authentication.md`，游戏与内置程序接口见 `docs/api/games.md`，Player 提交与公开评测接口见 `docs/api/player-evaluations.md`。运行 `pnpm typecheck` 和 `pnpm test` 可执行仓库的静态检查与测试。
 
 ## 开发约定
 
