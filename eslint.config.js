@@ -12,7 +12,7 @@ export default tseslint.config(
       "**/playwright-report/**",
       "**/test-results/**",
       "**/.turbo/**",
-      "packages/db/src/generated/**",
+      "packages/db/generated/**",
       "services/go-judge/**",
     ],
   },
